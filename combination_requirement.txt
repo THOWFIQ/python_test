@@ -1,0 +1,11 @@
+Sales_Order_id      ->primary 
+wo_id               ->primary 
+Sales_order_ref     ->primary 
+Fullfillment Id     ->primary 
+foid                ->primary 
+order_date          ->primary 
+ISMULTIPACK        -> secondary
+BUID               -> secondary
+Order create_date  ->primary 
+Facility            -> secondary
+Manifest ID        ->primary 
