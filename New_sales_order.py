@@ -1,14 +1,11 @@
 from flask import request, jsonify
 import httpx
 import json
+import os
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from graphqlQueries import (
-    fetch_soaorder_query, fetch_salesorder_query, fetch_workOrderId_query,
-    fetch_getByWorkorderids_query, fetch_fulfillment_query,
-    fetch_getFulfillmentsBysofulfillmentid_query, fetch_getAllFulfillmentHeadersSoidFulfillmentid_query,
-    fetch_getFbomBySoFulfillmentid_query, fetch_foid_query, tablestructural, get_path
-)
-from utils.config_loader import load_config
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from graphqlQueries import *
 
 # Load global config once
 CONFIG = load_config()
@@ -171,5 +168,5 @@ def getbySalesOrderID(salesorderids, format_type, region):
     return json.dumps(total_output, indent=2) if format_type == "export" else json.dumps(tablestructural(total_output, region), indent=2)
 
 # Example usage:
-# if __name__ == "__main__":
-#     print(getbySalesOrderID(["1004452326"], "grid", "DAO"))
+if __name__ == "__main__":
+    print(getbySalesOrderID(["1004452326"], "grid", "DAO"))
