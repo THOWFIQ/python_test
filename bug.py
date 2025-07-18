@@ -1,85 +1,71 @@
-if __name__ == "__main__":
-    salesorderIds=["1004452326"]
-    region = "EMEA"
-    # salesorderIds=["1004452326", "1004543337"]
-    # cleaned = fetch_and_clean()
-    # print(cleaned)
-    format_type='grid' #grid/export
-    getbySalesOrderID(salesorderid=salesorderIds,format_type=format_type,region=region)
-
-
-import json
 import os
 import sys
+import json
 import httpx
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Add current folder to path for imports
+# Add current directory to sys path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Import query builders and utilities
-from queries import (
-    fetch_salesorder_query,
-    tablestructural,
-    get_path
-)
+# Import all GraphQL queries and helpers
+from queries import fetch_salesorder_query, tablestructural
 
-# Load config on startup
+# Load config
 configABSpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
 with open(configABSpath, 'r') as file:
     configPath = json.load(file)
 
-# Disable SSL warnings (for dev/test environments only)
-import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# -----------------------
+# GraphQL Client
+# -----------------------
+def execute_graphql_query(query, variables=None):
+    endpoint = configPath.get("GraphQL_Endpoint")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {configPath.get('GraphQL_Token')}"
+    }
 
-def post_api(URL, query, variables=None):
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
+
     try:
-        payload = {"query": query}
-        if variables:
-            payload["variables"] = variables
-
-        response = httpx.post(URL, json=payload, verify=False)
+        response = httpx.post(endpoint, json=payload, headers=headers)
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f"Error calling GraphQL API: {e}")
+        print(f"[ERROR] GraphQL request failed: {e}")
         return None
 
 
-def getbySalesOrderIDs(salesorderid, format_type, region):
-    URL = get_path(region, "SOPATH", configPath)
-    query = fetch_salesorder_query(",".join(salesorderid))
-    result = post_api(URL, query)
-    return result
-
-
-def getbySalesOrderID(salesorderid, format_type, region):
-    results = []
-
+# -----------------------
+# Get by SalesOrderID Main
+# -----------------------
+def getbySalesOrderID(salesorderid: list, format_type: str = "grid", region: str = "DAO"):
     def fetch_and_flatten(salesid):
-        data = getbySalesOrderIDs([salesid], format_type, region)
-    
+        query = fetch_salesorder_query(salesid)
+        data = execute_graphql_query(query)
+
         if not data:
-            print(f"[ERROR] No response received for Sales Order ID: {salesid}")
+            print(f"[ERROR] No response for Sales Order ID: {salesid}")
             return None
-    
-        if "data" not in data or data["data"] is None:
-            print(f"[ERROR] 'data' key missing or null in response for: {salesid}")
+
+        if "data" not in data or not data["data"]:
+            print(f"[ERROR] 'data' missing in response for {salesid}")
             return None
-    
-        if "getBySalesorderids" not in data["data"] or data["data"]["getBySalesorderids"] is None:
-            print(f"[ERROR] 'getBySalesorderids' is missing or null for: {salesid}")
+
+        if "getBySalesorderids" not in data["data"] or not data["data"]["getBySalesorderids"]:
+            print(f"[ERROR] 'getBySalesorderids' is missing or null for {salesid}")
             return None
-    
+
         results = data["data"]["getBySalesorderids"].get("result")
         if not results or not isinstance(results, list):
-            print(f"[INFO] No results found for Sales Order ID: {salesid}")
+            print(f"[INFO] No records found for Sales Order ID: {salesid}")
             return None
-    
+
         record = results[0]
-    
+
         return {
             "Sales Order Id": record.get("salesOrder", {}).get("salesOrderId"),
             "BUID": record.get("salesOrder", {}).get("buid"),
@@ -90,27 +76,35 @@ def getbySalesOrderID(salesorderid, format_type, region):
             "SN Number": record.get("asnNumbers", [{}])[0].get("snNumber") if record.get("asnNumbers") else None,
         }
 
+    print(f"[INFO] Fetching {len(salesorderid)} sales order(s)...")
 
+    # Use ThreadPool for concurrent GraphQL calls
+    results = []
     with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(fetch_and_flatten, sid) for sid in salesorderid]
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                results.append(result)
+        future_to_sid = {executor.submit(fetch_and_flatten, sid): sid for sid in salesorderid}
+        for future in as_completed(future_to_sid):
+            sid = future_to_sid[future]
+            try:
+                result = future.result()
+                if result:
+                    results.append(result)
+            except Exception as exc:
+                print(f"[ERROR] Exception while processing {sid}: {exc}")
 
-    if format_type == 'grid':
-        return tablestructural(results, region)
-    elif format_type == 'export':
-        return results
+    if format_type.lower() == "export":
+        return json.dumps(results, indent=2)
     else:
-        return {"error": "Invalid format_type provided. Use 'grid' or 'export'"}
+        structured = tablestructural(results, region.upper())
+        return json.dumps(structured, indent=2)
 
 
-# Local test block
+# -----------------------
+# Run for CLI testing
+# -----------------------
 if __name__ == "__main__":
-    salesorderIds = ["1004452326"]  # Replace with multiple IDs if needed
+    salesorderIds = ["1004452326"]  # Replace with your test IDs
     region = "EMEA"
-    format_type = "grid"  # or 'export'
+    format_type = "grid"  # grid or export
 
-    output = getbySalesOrderID(salesorderid=salesorderIds, format_type=format_type, region=region)
-    print(json.dumps(output, indent=2) if isinstance(output, dict) else output)
+    result = getbySalesOrderID(salesorderid=salesorderIds, format_type=format_type, region=region)
+    print(result)
