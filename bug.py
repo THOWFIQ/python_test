@@ -4,8 +4,13 @@ try:
         format_type = data.get("format_type", "grid")
         region = data.get("region")
 
+        # ✨ Fix: Convert comma-separated string to list if needed
+        if isinstance(salesorderids, str):
+            salesorderids = [sid.strip() for sid in salesorderids.split(",") if sid.strip()]
+
         if not salesorderids or not isinstance(salesorderids, list):
             return jsonify({"error": "salesorderids must be a non-empty list"}), 400
+
         if format_type not in ["grid", "export"]:
             return jsonify({"error": "format_type must be 'grid' or 'export'"}), 400
         if not region:
