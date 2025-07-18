@@ -60,25 +60,36 @@ def getbySalesOrderID(salesorderid, format_type, region):
 
     def fetch_and_flatten(salesid):
         data = getbySalesOrderIDs([salesid], format_type, region)
-        try:
-            records = data["data"]["getBySalesorderids"]["result"]
-            if not records:
-                print(f"No data for Sales Order ID: {salesid}")
-                return None
-
-            record = records[0]
-            return {
-                "Sales Order Id": record.get("salesOrder", {}).get("salesOrderId"),
-                "BUID": record.get("salesOrder", {}).get("buid"),
-                "Region Code": record.get("salesOrder", {}).get("region"),
-                "Fulfillment Id": record.get("fulfillment", {}).get("fulfillmentId"),
-                "FoId": record.get("fulfillmentOrders", [{}])[0].get("foId") if record.get("fulfillmentOrders") else None,
-                "WO ID": record.get("workOrders", [{}])[0].get("woId") if record.get("workOrders") else None,
-                "SN Number": record.get("asnNumbers", [{}])[0].get("snNumber") if record.get("asnNumbers") else None,
-            }
-        except Exception as e:
-            print(f"Error parsing result for {salesid}: {e}")
+    
+        if not data:
+            print(f"[ERROR] No response received for Sales Order ID: {salesid}")
             return None
+    
+        if "data" not in data or data["data"] is None:
+            print(f"[ERROR] 'data' key missing or null in response for: {salesid}")
+            return None
+    
+        if "getBySalesorderids" not in data["data"] or data["data"]["getBySalesorderids"] is None:
+            print(f"[ERROR] 'getBySalesorderids' is missing or null for: {salesid}")
+            return None
+    
+        results = data["data"]["getBySalesorderids"].get("result")
+        if not results or not isinstance(results, list):
+            print(f"[INFO] No results found for Sales Order ID: {salesid}")
+            return None
+    
+        record = results[0]
+    
+        return {
+            "Sales Order Id": record.get("salesOrder", {}).get("salesOrderId"),
+            "BUID": record.get("salesOrder", {}).get("buid"),
+            "Region Code": record.get("salesOrder", {}).get("region"),
+            "Fulfillment Id": record.get("fulfillment", {}).get("fulfillmentId"),
+            "FoId": record.get("fulfillmentOrders", [{}])[0].get("foId") if record.get("fulfillmentOrders") else None,
+            "WO ID": record.get("workOrders", [{}])[0].get("woId") if record.get("workOrders") else None,
+            "SN Number": record.get("asnNumbers", [{}])[0].get("snNumber") if record.get("asnNumbers") else None,
+        }
+
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(fetch_and_flatten, sid) for sid in salesorderid]
