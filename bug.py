@@ -203,3 +203,22 @@ def getbySalesOrderID(salesorderids, format_type, region):
 # ---- Local test runner ----
 if __name__ == "__main__":
     print(getbySalesOrderID(["1004452326", "1004543337"], "grid", "DAO"))
+
+
+
+from flask import Flask, request
+
+app = Flask(__name__)
+
+@app.route("/getSalesOrders", methods=["POST"])
+def get_sales_orders():
+    payload = request.json
+    salesorderids = payload.get("salesorderids", "")
+    format_type = payload.get("format_type", "grid")
+    region = payload.get("region", "DAO")
+    result = getbySalesOrderID(salesorderids, format_type, region)
+    return result
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
