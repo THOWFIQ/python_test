@@ -108,3 +108,6 @@ if __name__ == "__main__":
 
     result = getbySalesOrderID(salesorderid=salesorderIds, format_type=format_type, region=region)
     print(result)
+
+[ERROR] GraphQL request failed: Invalid type for url.  Expected str or httpx.URL, got <class 'NoneType'>: None
+[ERROR] No response for Sales Order ID: 1004452326
