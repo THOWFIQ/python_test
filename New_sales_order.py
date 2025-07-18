@@ -170,3 +170,155 @@ def getbySalesOrderID(salesorderids, format_type, region):
 # Example usage:
 if __name__ == "__main__":
     print(getbySalesOrderID(["1004452326"], "grid", "DAO"))
+
+
+
+
+
+from flask import request, jsonify
+import httpx
+import json
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from graphqlQueries import *
+
+# Load global config once
+def load_config():
+    try:
+        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"❌ Failed to load config: {e}")
+        return {}
+
+CONFIG = load_config()
+
+def post_api(URL, query, variables=None):
+    try:
+        payload = {"query": query}
+        if variables:
+            payload["variables"] = variables
+        response = httpx.post(URL, json=payload, verify=False, timeout=30)
+        response.raise_for_status()
+        res_json = response.json()
+        if 'errors' in res_json:
+            print(f"⚠️ GraphQL errors from {URL}: {res_json['errors']}")
+            return None
+        return res_json
+    except Exception as e:
+        print(f"❌ API call failed for {URL}: {e}")
+        return None
+
+def fetch_and_clean(salesorder_id, region):
+    combined_data = {'data': {}}
+    
+    # Region-specific endpoints
+    FID = get_path(region, "FID", CONFIG)
+    FOID = get_path(region, "FOID", CONFIG)
+    SOPATH = get_path(region, "SOPATH", CONFIG)
+    WOID = get_path(region, "WOID", CONFIG)
+    FFBOM = get_path(region, "FFBOM", CONFIG)
+
+    soi = {"salesorderIds": [salesorder_id]}
+
+    # Fetch SO Header
+    so_header_resp = post_api(SOPATH, fetch_soaorder_query(), soi)
+    if not so_header_resp:
+        raise ValueError(f"No SO Header for {salesorder_id}")
+    combined_data['data']['getSoheaderBySoids'] = so_header_resp['data'].get('getSoheaderBySoids', [])
+
+    # Fetch Sales Order
+    salesorder_resp = post_api(FID, fetch_salesorder_query(salesorder_id))
+    if not salesorder_resp or 'data' not in salesorder_resp:
+        raise ValueError(f"No sales order data for {salesorder_id}")
+    
+    sales_data = salesorder_resp['data'].get('getBySalesorderids', {})
+    result_list = sales_data.get('result', [])
+    if not result_list:
+        raise ValueError(f"No sales order result for {salesorder_id}")
+
+    result = result_list[0]
+    combined_data['data']['getBySalesorderids'] = sales_data
+
+    # Enrich Work Orders
+    for wo in result.get("workOrders", []):
+        wo_id = wo.get("woId")
+        if not wo_id:
+            continue
+        wo_detail = post_api(WOID, fetch_workOrderId_query(wo_id))
+        if not wo_detail or not wo_detail['data'].get("getWorkOrderById"):
+            continue
+        wo_enriched = wo_detail["data"]["getWorkOrderById"][0]
+
+        sn_resp = post_api(FID, fetch_getByWorkorderids_query(wo_id))
+        sn_list = []
+        try:
+            sn_numbers = sn_resp["data"]["getByWorkorderids"]["result"][0]["asnNumbers"]
+            sn_list = [sn["snNumber"] for sn in sn_numbers if sn.get("snNumber")]
+        except:
+            pass
+
+        wo.update({
+            "Vendor Work Order Num": wo_enriched.get("woId"),
+            "Channel Status Code": wo_enriched.get("channelStatusCode"),
+            "Ismultipack": wo_enriched.get("woLines", [{}])[0].get("ismultipack"),
+            "Ship Mode": wo_enriched.get("shipMode"),
+            "Is Otm Enabled": wo_enriched.get("isOtmEnabled"),
+            "SN Number": sn_list
+        })
+
+    # Fulfillment-related
+    fulfillment = result.get("fulfillment")
+    fulfillment_id = None
+    if isinstance(fulfillment, dict):
+        fulfillment_id = fulfillment.get("fulfillmentId")
+    elif isinstance(fulfillment, list) and fulfillment:
+        fulfillment_id = fulfillment[0].get("fulfillmentId")
+
+    if fulfillment_id:
+        combined_data["data"]["getFulfillmentsById"] = post_api(SOPATH, fetch_fulfillment_query(), {"fulfillment_id": fulfillment_id})["data"].get("getFulfillmentsById", [])
+        combined_data["data"]["getFulfillmentsBysofulfillmentid"] = post_api(SOPATH, fetch_getFulfillmentsBysofulfillmentid_query(fulfillment_id))["data"].get("getFulfillmentsBysofulfillmentid", [])
+        combined_data["data"]["getAllFulfillmentHeadersSoidFulfillmentid"] = post_api(FOID, fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(fulfillment_id))["data"].get("getAllFulfillmentHeadersSoidFulfillmentid", [])
+        combined_data["data"]["getFbomBySoFulfillmentid"] = post_api(FFBOM, fetch_getFbomBySoFulfillmentid_query(fulfillment_id))["data"].get("getFbomBySoFulfillmentid", [])
+
+    # FOID
+    fulfillment_orders = result.get("fulfillmentOrders", [])
+    if fulfillment_orders:
+        foid = fulfillment_orders[0].get("foId")
+        fo_output = post_api(FOID, fetch_foid_query(foid))
+        combined_data["data"]["getAllFulfillmentHeadersByFoId"] = fo_output["data"].get("getAllFulfillmentHeadersByFoId", [])
+
+    return combined_data
+
+def getbySalesOrderID(salesorderids, format_type, region):
+    if not salesorderids:
+        return {"error": "SalesOrderIds required"}
+    if format_type not in ["export", "grid"]:
+        return {"error": "Invalid format type"}
+    if not region:
+        return {"error": "Region is required"}
+
+    # Convert "1001,1002,1003" -> ["1001", "1002", "1003"]
+    if isinstance(salesorderids, str):
+        salesorderids = [sid.strip() for sid in salesorderids.split(",")]
+
+    total_output = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(fetch_and_clean, sid, region): sid for sid in salesorderids}
+        for future in as_completed(futures):
+            sid = futures[future]
+            try:
+                data = future.result()
+                flat = flatten_data(data, format_type, region)
+                if isinstance(flat, list):
+                    total_output.extend(flat)
+                elif isinstance(flat, dict) and "columns" in flat:
+                    total_output.extend(flat.get("data", []))
+            except Exception as e:
+                print(f"❌ Error processing {sid}: {e}")
+
+    return json.dumps(total_output, indent=2) if format_type == "export" else json.dumps(tablestructural(total_output, region), indent=2)
+
