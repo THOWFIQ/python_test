@@ -20,3 +20,13 @@ from queries import (
     fetch_foid_query,
     tablestructural
 )
+
+Traceback (most recent call last):
+  File "C:\Users\Thowfiq_S\Project\fdhdataservice\app.py", line 30, in <module>
+    from OrderLookUpFunction.salesOrderWrapper import getbySalesOrderID
+  File "C:\Users\Thowfiq_S\Project\fdhdataservice\OrderLookUpFunction\salesOrderWrapper.py", line 34, in <module>
+    from graphqlQueries import *
+  File "C:\Users\Thowfiq_S\Project\fdhdataservice\OrderLookUpFunction\graphqlQueries.py", line 2, in <module>
+    configABSpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
+                    ^^
+NameError: name 'os' is not defined. Did you forget to import 'os'?
