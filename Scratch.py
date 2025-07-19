@@ -133,6 +133,23 @@ def fileldValidation(filters, format_type, region):
                     print(f"Error in Fullfillment Id fetch: {e}")
         result_map['Fullfillment Id'] = fullfillment_results
 
+    # Validate secondary fields exist in the result of primary fields
+    for sec_key, sec_val in secondary_filters.items():
+        found = False
+        for key, responses in result_map.items():
+            for response in responses:
+                response_str = json.dumps(response)
+                if sec_key in response_str and sec_val in response_str:
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            return {
+                "status": "error",
+                "message": f"Secondary field '{sec_key}' with value '{sec_val}' not found in any primary result."
+            }
+
     for key, res in result_map.items():
         print(f"\nResults for {key}:")
         for r in res:
