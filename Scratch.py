@@ -111,3 +111,6 @@ if __name__ == "__main__":
             "order_date": "2025-07-15"
             }
     result = fileldValidation(filters=filters,format_type=format_type,region=region)
+
+    soriDs = [x.strip() for x in primary_filters['Sales_Order_id'].split(',') if x.strip()]
+
