@@ -66,23 +66,22 @@ def threaded_fetch(query_func_with_param, var_key, values_list, url):
 def combined_fulfillment_fetch(fulfillment_id):
     combined_data = {'data': {}}
 
-    # These functions return queries without parameters
-    fulfillment_query = fetch_fulfillment_query()
+    fulfillment_query = fetch_fulfillment_query(fulfillment_id)
     fulfillment_data = post_api(URL=SOPATH, query=fulfillment_query, variables={"fulfillment_id": fulfillment_id})
     if fulfillment_data and fulfillment_data.get('data'):
         combined_data['data']['getFulfillmentsById'] = fulfillment_data['data']['getFulfillmentsById']
 
-    sofulfillment_query = fetch_getFulfillmentsBysofulfillmentid_query()
+    sofulfillment_query = fetch_getFulfillmentsBysofulfillmentid_query(fulfillment_id)
     sofulfillment_data = post_api(URL=SOPATH, query=sofulfillment_query, variables={"sofulfillmentid": fulfillment_id})
     if sofulfillment_data and sofulfillment_data.get('data'):
         combined_data['data']['getFulfillmentsBysofulfillmentid'] = sofulfillment_data['data']['getFulfillmentsBysofulfillmentid']
 
-    directship_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query()
+    directship_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(fulfillment_id)
     directship_data = post_api(URL=FOID, query=directship_query, variables={"soid": "dummy", "fulfillmentid": fulfillment_id})
     if directship_data and directship_data.get('data'):
         combined_data['data']['getAllFulfillmentHeadersSoidFulfillmentid'] = directship_data['data']['getAllFulfillmentHeadersSoidFulfillmentid']
 
-    fbom_query = fetch_getFbomBySoFulfillmentid_query()
+    fbom_query = fetch_getFbomBySoFulfillmentid_query(fulfillment_id)
     fbom_data = post_api(URL=FFBOM, query=fbom_query, variables={"sofulfillmentid": fulfillment_id})
     if fbom_data and fbom_data.get('data'):
         combined_data['data']['getFbomBySoFulfillmentid'] = fbom_data['data']['getFbomBySoFulfillmentid']
@@ -108,58 +107,64 @@ def fileldValidation(filters, format_type, region):
     primary_filters = {key: filters[key] for key in primary_in_filters}
     secondary_filters = {key: filters[key] for key in secondary_in_filters}
     result_map = {}
-
-    if 'Sales_Order_id' in primary_filters:
-        so_ids = list(set(x.strip() for x in primary_filters['Sales_Order_id'].split(',') if x.strip()))
-        result_map['Sales_Order_id'] = threaded_fetch(fetch_salesorder_query, "salesorderIds", so_ids, SOPATH)
-
-    if 'foid' in primary_filters:
-        foids = list(set(x.strip() for x in primary_filters['foid'].split(',') if x.strip()))
-        result_map['foid'] = threaded_fetch(fetch_foid_query, "foids", foids, FOID)
-
-    if 'wo_id' in primary_filters:
-        woids = list(set(x.strip() for x in primary_filters['wo_id'].split(',') if x.strip()))
-        result_map['wo_id'] = threaded_fetch(fetch_workOrderId_query, "woIds", woids, WOID)
-        result_map['wo_id_extra'] = threaded_fetch(fetch_getByWorkorderids_query, "woIds", woids, WOID)
+    export_rows = []
 
     if 'Fullfillment Id' in primary_filters:
         ff_ids = list(set(x.strip() for x in primary_filters['Fullfillment Id'].split(',') if x.strip()))
-        fullfillment_results = []
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = [executor.submit(combined_fulfillment_fetch, fid) for fid in ff_ids]
             for future in as_completed(futures):
                 try:
-                    fullfillment_results.append(future.result())
+                    combined_data = future.result()
+                    header = combined_data.get("data", {}).get("getFulfillmentsById", {})
+                    address = combined_data.get("data", {}).get("getFulfillmentsBysofulfillmentid", {}).get("address", [{}])[0]
+                    fulfillment = combined_data.get("data", {}).get("getFulfillmentsBysofulfillmentid", {})
+                    forderline = combined_data.get("data", {}).get("getAllFulfillmentHeadersSoidFulfillmentid", [{}])[0]
+
+                    row = {
+                        "BUID": header.get("buid", ""),
+                        "PP Date": header.get("ppDate", ""),
+                        "Sales Order Id": header.get("salesOrderId", ""),
+                        "Fulfillment Id": header.get("fulfillmentId", ""),
+                        "Region Code": header.get("region", ""),
+                        "FoId": forderline.get("foId", ""),
+                        "System Qty": fulfillment.get("systemQty", ""),
+                        "Ship By Date": fulfillment.get("shipByDate", ""),
+                        "LOB": fulfillment.get("salesOrderLines", [{}])[0].get("lob", ""),
+                        "Ship From Facility": forderline.get("shipFromFacility", ""),
+                        "Ship To Facility": forderline.get("shipToFacility", ""),
+                        "Tax Regstrn Num": address.get("taxRegstrnNum", ""),
+                        "Address Line1": address.get("addressLine1", ""),
+                        "Postal Code": address.get("postalCode", ""),
+                        "State Code": address.get("stateCode", ""),
+                        "City Code": address.get("cityCode", ""),
+                        "Customer Num": address.get("customerNum", ""),
+                        "Customer NameExt": address.get("customerNameExt", ""),
+                        "Country": address.get("country", ""),
+                        "Create Date": address.get("createDate", ""),
+                        "Ship Code": fulfillment.get("shipCode", ""),
+                        "Must Arrive By Date": fulfillment.get("mustArriveByDate", ""),
+                        "Update Date": fulfillment.get("updateDate", ""),
+                        "Merge Type": fulfillment.get("mergeType", ""),
+                        "Manifest Date": fulfillment.get("manifestDate", ""),
+                        "Revised Delivery Date": fulfillment.get("revisedDeliveryDate", ""),
+                        "Delivery City": fulfillment.get("deliveryCity", ""),
+                        "Source System Id": fulfillment.get("sourceSystemId", ""),
+                        "IsDirect Ship": fulfillment.get("isDirectShip", ""),
+                        "SSC": fulfillment.get("ssc", ""),
+                        "OIC Id": fulfillment.get("oicId", ""),
+                        "Order Date": header.get("orderDate", ""),
+                        "SN Number": None,
+                        "wo_ids": []
+                    }
+                    export_rows.append(row)
                 except Exception as e:
-                    print(f"Error in Fullfillment Id fetch: {e}")
-        result_map['Fullfillment Id'] = fullfillment_results
-
-    # Validate secondary fields exist in the result of primary fields
-    for sec_key, sec_val in secondary_filters.items():
-        found = False
-        for key, responses in result_map.items():
-            for response in responses:
-                response_str = json.dumps(response)
-                if sec_key in response_str and sec_val in response_str:
-                    found = True
-                    break
-            if found:
-                break
-        if not found:
-            return {
-                "status": "error",
-                "message": f"Secondary field '{sec_key}' with value '{sec_val}' not found in any primary result."
-            }
-
-    for key, res in result_map.items():
-        print(f"\nResults for {key}:")
-        for r in res:
-            print(json.dumps(r, indent=2))
+                    print(f"Error building export row: {e}")
 
     return {
         "status": "success",
-        "message": "Validation and fetch completed.",
-        "result_summary": {key: f"{len(val)} response(s)" for key, val in result_map.items()}
+        "message": "Validation and export data build completed.",
+        "rows": export_rows
     }
 
 if __name__ == "__main__":
@@ -181,33 +186,3 @@ if __name__ == "__main__":
 
     result = fileldValidation(filters=filters, format_type=format_type, region=region)
     print(json.dumps(result, indent=2))
-
-def combined_fulfillment_fetch(fulfillment_id):
-    combined_data = {'data': {}}
-
-    # Call query generators without parameters
-    fulfillment_query = fetch_fulfillment_query()
-    sofulfillment_query = fetch_getFulfillmentsBysofulfillmentid_query()
-    directship_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query()
-    fbom_query = fetch_getFbomBySoFulfillmentid_query()
-
-    # Now safely pass variables to post_api
-    fulfillment_data = post_api(URL=SOPATH, query=fulfillment_query, variables={"fulfillment_id": fulfillment_id})
-    if fulfillment_data and fulfillment_data.get('data'):
-        combined_data['data']['getFulfillmentsById'] = fulfillment_data['data']['getFulfillmentsById']
-
-    sofulfillment_data = post_api(URL=SOPATH, query=sofulfillment_query, variables={"sofulfillmentid": fulfillment_id})
-    if sofulfillment_data and sofulfillment_data.get('data'):
-        combined_data['data']['getFulfillmentsBysofulfillmentid'] = sofulfillment_data['data']['getFulfillmentsBysofulfillmentid']
-
-    directship_data = post_api(URL=FOID, query=directship_query, variables={"soid": "dummy", "fulfillmentid": fulfillment_id})
-    if directship_data and directship_data.get('data'):
-        combined_data['data']['getAllFulfillmentHeadersSoidFulfillmentid'] = directship_data['data']['getAllFulfillmentHeadersSoidFulfillmentid']
-
-    fbom_data = post_api(URL=FFBOM, query=fbom_query, variables={"sofulfillmentid": fulfillment_id})
-    if fbom_data and fbom_data.get('data'):
-        combined_data['data']['getFbomBySoFulfillmentid'] = fbom_data['data']['getFbomBySoFulfillmentid']
-
-    return combined_data
-
-
