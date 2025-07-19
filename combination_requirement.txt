@@ -9,3 +9,14 @@ BUID               -> secondary
 Order create_date  ->primary 
 Facility            -> secondary
 Manifest ID        ->primary 
+
+
+step 1 : Primary fields and secondary store into induvidual list
+
+step 2 : inside the filters dictionary coming fields need to check into its primary filds and secondary fields 
+
+step 3 : filters fields only matching ins secondady field throgh the error message to response must need any one of primary field
+
+step 4 :  inside the filters fileds its matching any of primary fields need to call query its in query file 
+
+step 5 : get the fileds and prepare the 50 colums data 
