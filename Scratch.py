@@ -37,20 +37,18 @@ SECONDARY_FIELDS = {
 
 def post_api(URL, query, variables):
     try:
-        if variables:
-            response = httpx.post(URL, json={"query": query, "variables": variables}, verify=False)
-        else:
-            response = httpx.post(URL, json={"query": query}, verify=False)
+        print(f"\n--- QUERY TO {URL} ---\n{query}\nVARIABLES:\n{variables}\n")
+        response = httpx.post(URL, json={"query": query, "variables": variables}, verify=False)
         return response.json()
     except Exception as e:
         print(f"Exception in post_api: {e}")
         return {"error": str(e)}
 
-def threaded_fetch(query_func, var_key, values_list, url):
-    query = query_func()
+def threaded_fetch(query_func_with_param, var_key, values_list, url):
     results = []
 
     def call_api(val):
+        query = query_func_with_param(val)
         variables = {var_key: [val]}
         return post_api(URL=url, query=query, variables=variables)
 
@@ -68,22 +66,22 @@ def threaded_fetch(query_func, var_key, values_list, url):
 def combined_fulfillment_fetch(fulfillment_id):
     combined_data = {'data': {}}
 
-    fulfillment_query = fetch_fulfillment_query()
+    fulfillment_query = fetch_fulfillment_query(fulfillment_id)
     fulfillment_data = post_api(URL=SOPATH, query=fulfillment_query, variables={"fulfillment_id": fulfillment_id})
     if fulfillment_data and fulfillment_data.get('data'):
         combined_data['data']['getFulfillmentsById'] = fulfillment_data['data']['getFulfillmentsById']
 
-    sofulfillment_query = fetch_getFulfillmentsBysofulfillmentid_query()
+    sofulfillment_query = fetch_getFulfillmentsBysofulfillmentid_query(fulfillment_id)
     sofulfillment_data = post_api(URL=SOPATH, query=sofulfillment_query, variables={"sofulfillmentid": fulfillment_id})
     if sofulfillment_data and sofulfillment_data.get('data'):
         combined_data['data']['getFulfillmentsBysofulfillmentid'] = sofulfillment_data['data']['getFulfillmentsBysofulfillmentid']
 
-    directship_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query()
+    directship_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(fulfillment_id)
     directship_data = post_api(URL=FOID, query=directship_query, variables={"soid": "dummy", "fulfillmentid": fulfillment_id})
     if directship_data and directship_data.get('data'):
         combined_data['data']['getAllFulfillmentHeadersSoidFulfillmentid'] = directship_data['data']['getAllFulfillmentHeadersSoidFulfillmentid']
 
-    fbom_query = fetch_getFbomBySoFulfillmentid_query()
+    fbom_query = fetch_getFbomBySoFulfillmentid_query(fulfillment_id)
     fbom_data = post_api(URL=FFBOM, query=fbom_query, variables={"sofulfillmentid": fulfillment_id})
     if fbom_data and fbom_data.get('data'):
         combined_data['data']['getFbomBySoFulfillmentid'] = fbom_data['data']['getFbomBySoFulfillmentid']
@@ -165,5 +163,3 @@ if __name__ == "__main__":
 
     result = fileldValidation(filters=filters, format_type=format_type, region=region)
     print(json.dumps(result, indent=2))
-
-TypeError: fetch_salesorder_query() missing 1 required positional argument: 'salesorderIds'
