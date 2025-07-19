@@ -37,7 +37,8 @@ def flatten_dict(d, parent_key='', sep='.'):
                 for i, elem in enumerate(v):
                     items.extend(flatten_dict(elem, f"{new_key}[{i}]", sep=sep).items())
             else:
-                items.append((new_key, v))
+                for i, elem in enumerate(v):
+                    items.append((f"{new_key}[{i}]", elem))
         else:
             items.append((new_key, v))
     return dict(items)
@@ -93,14 +94,14 @@ def get_by_combination(filters: dict, region: str, format_type: str = "export"):
 
     flat_data = []
     for record in data:
-        flat_data.append(flatten_dict(record))
+        flat = flatten_dict(record)
+        flat_data.append(flat)
 
     flat_data = [{k: ("" if v is None else v) for k, v in row.items()} for row in flat_data]
     if format_type == "export":
         return json.dumps(flat_data, indent=2)
     elif format_type == "grid":
-        table_grid_output = tablestructural(data=flat_data, IsPrimary=region)
-        return table_grid_output
+        return tablestructural(data=flat_data, IsPrimary=region)
     else:
         return {"error": "Invalid format type"}
 
@@ -175,11 +176,12 @@ def getbySalesOrderID(salesorderid, format_type, region, filters=None):
 if __name__ == "__main__":
     output = getbySalesOrderID(
         salesorderid=["1004452326", "1004543337"],
-        format_type="grid",
+        format_type="export",
         region="EMEA",
         filters={
             "Fullfillment Id": "262135",
             "wo_id": "7360928459"
         }
     )
+    print("Export Output")
     print(output)
