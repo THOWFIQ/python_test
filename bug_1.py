@@ -107,10 +107,10 @@ def get_by_combination(filters: dict, region: str, format_type: str = "export"):
                 if isinstance(val, list):
                     for rec in val:
                         if match_optional_fields(rec):
-                            flat_data.append(rec)
+                            flat_data.append(flatten_dict(rec))
                 elif isinstance(val, dict):
                     if match_optional_fields(val):
-                        flat_data.append(val)
+                        flat_data.append(flatten_dict(val))
 
     flat_data = [{k: ("" if v is None else v) for k, v in row.items()} for row in flat_data]
     if format_type == "export":
@@ -122,6 +122,16 @@ def get_by_combination(filters: dict, region: str, format_type: str = "export"):
         return table_grid_output
     else:
         return {"error": "Invalid format type"}
+
+def flatten_dict(d, parent_key='', sep='.'):
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
 
 def apply_filters(data_list, filters):
     if not filters:
