@@ -66,22 +66,23 @@ def threaded_fetch(query_func_with_param, var_key, values_list, url):
 def combined_fulfillment_fetch(fulfillment_id):
     combined_data = {'data': {}}
 
-    fulfillment_query = fetch_fulfillment_query(fulfillment_id)
+    # These functions return queries without parameters
+    fulfillment_query = fetch_fulfillment_query()
     fulfillment_data = post_api(URL=SOPATH, query=fulfillment_query, variables={"fulfillment_id": fulfillment_id})
     if fulfillment_data and fulfillment_data.get('data'):
         combined_data['data']['getFulfillmentsById'] = fulfillment_data['data']['getFulfillmentsById']
 
-    sofulfillment_query = fetch_getFulfillmentsBysofulfillmentid_query(fulfillment_id)
+    sofulfillment_query = fetch_getFulfillmentsBysofulfillmentid_query()
     sofulfillment_data = post_api(URL=SOPATH, query=sofulfillment_query, variables={"sofulfillmentid": fulfillment_id})
     if sofulfillment_data and sofulfillment_data.get('data'):
         combined_data['data']['getFulfillmentsBysofulfillmentid'] = sofulfillment_data['data']['getFulfillmentsBysofulfillmentid']
 
-    directship_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(fulfillment_id)
+    directship_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query()
     directship_data = post_api(URL=FOID, query=directship_query, variables={"soid": "dummy", "fulfillmentid": fulfillment_id})
     if directship_data and directship_data.get('data'):
         combined_data['data']['getAllFulfillmentHeadersSoidFulfillmentid'] = directship_data['data']['getAllFulfillmentHeadersSoidFulfillmentid']
 
-    fbom_query = fetch_getFbomBySoFulfillmentid_query(fulfillment_id)
+    fbom_query = fetch_getFbomBySoFulfillmentid_query()
     fbom_data = post_api(URL=FFBOM, query=fbom_query, variables={"sofulfillmentid": fulfillment_id})
     if fbom_data and fbom_data.get('data'):
         combined_data['data']['getFbomBySoFulfillmentid'] = fbom_data['data']['getFbomBySoFulfillmentid']
@@ -181,5 +182,3 @@ if __name__ == "__main__":
     result = fileldValidation(filters=filters, format_type=format_type, region=region)
     print(json.dumps(result, indent=2))
 
-Error in Fullfillment Id fetch: fetch_fulfillment_query() takes 0 positional arguments but 1 was given
-Error in Fullfillment Id fetch: fetch_fulfillment_query() takes 0 positional arguments but 1 was given
