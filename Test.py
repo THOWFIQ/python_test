@@ -211,3 +211,17 @@ def getbySalesOrderID(salesorderid, format_type, region, filters=None):
     else:
         return {"error": "Invalid format type"}
 
+output = getbySalesOrderID(
+    salesorderid=["1004452326", "1004543337"],
+    format_type="export",
+    region="EMEA",
+    filters={
+        "Sales Order Id": "1004452326,1004543337",
+        "FoId": "F72348",
+        "Facility": "3647gjhsgbfhs"
+    }
+)
+
+print(output)
+
+
