@@ -28,13 +28,13 @@ def post_api(URL, query, variables=None):
 def fetch_and_clean(salesorderid):
     try:
         queries = {
-            "getSoheaderBySoids": (SOPATH, fetch_soheader_by_soid(salesorderid)),
-            "getBySalesorderids": (FOID, fetch_by_salesorderids(salesorderid)),
-            "getFulfillmentsById": (FOID, fetch_fulfillment_by_soid(salesorderid)),
-            "getAllFulfillmentHeadersByFoId": (FOID, fetch_all_fulfillment_header_foid(salesorderid)),
-            "getFulfillmentsBysofulfillmentid": (FID, fetch_fulfillment_by_so_fulfillment_id(salesorderid)),
-            "getAllFulfillmentHeadersSoidFulfillmentid": (FOID, fetch_header_soid_fulfillmentid(salesorderid)),
-            "getFbomBySoFulfillmentid": (FFBOM, fetch_bom_by_so_fulfillment_id(salesorderid))
+            "getSoheaderBySoids": (SOPATH, fetch_soaorder_query()),
+            "getBySalesorderids": (FOID, fetch_salesorder_query(salesorderid)),
+            "getFulfillmentsById": (FOID, fetch_fulfillment_query()),
+            "getAllFulfillmentHeadersByFoId": (FOID, fetch_foid_query(salesorderid)),
+            "getFulfillmentsBysofulfillmentid": (FID, fetch_getFulfillmentsBysofulfillmentid_query(salesorderid)),
+            "getAllFulfillmentHeadersSoidFulfillmentid": (FOID, fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(salesorderid)),
+            "getFbomBySoFulfillmentid": (FFBOM, fetch_getFbomBySoFulfillmentid_query(salesorderid))
         }
 
         combined_result = {"data": {}}
@@ -51,155 +51,54 @@ def fetch_and_clean(salesorderid):
         traceback.print_exc()
         return None
 
-def get_by_combination(filters: dict, region: str, format_type: str = "export"):
-    data = []
-
-    if sales_order_id := filters.get("Sales_Order_id"):
-        query = fetch_salesorder_query(sales_order_id)
-        response = post_api(SOPATH, query)
-        if response and response.get("data"):
-            data.append(response["data"])
-
-    if wo_id := filters.get("wo_id"):
-        query = fetch_workOrderId_query(wo_id)
-        response = post_api(WOID, query)
-        if response and response.get("data"):
-            data.append(response["data"])
-
-    if fulfillment_id := filters.get("Fullfillment Id"):
-        query = fetch_fulfillment_query()
-        response = post_api(SOPATH, query, {"fulfillment_id": fulfillment_id})
-        if response and response.get("data"):
-            data.append(response["data"])
-
-    if foid := filters.get("foid"):
-        query = fetch_foid_query(foid)
-        response = post_api(FOID, query)
-        if response and response.get("data"):
-            data.append(response["data"])
-
-    if manifest_id := filters.get("Manifest ID"):
-        query = fetch_getAsn_query(manifest_id)
-        response = post_api(FID, query)
-        if response and response.get("data"):
-            data.append(response["data"])
-
-    if sn_number := filters.get("SN Number"):
-        query = fetch_getAsnbySn_query(sn_number)
-        response = post_api(FID, query)
-        if response and response.get("data"):
-            data.append(response["data"])
-
-    if order_date := filters.get("order_date"):
-        try:
-            from_date, to_date = order_date.split(" to ")
-            query = fetch_getOrderDate_query(from_date.strip(), to_date.strip())
-            response = post_api(SOPATH, query)
-            if response and response.get("data"):
-                data.append(response["data"])
-        except Exception as e:
-            print("Invalid order_date range format:", e)
-
-    def match_optional_fields(entry):
-        for key, expected in filters.items():
-            if key == "ISMULTIPACK":
-                if not any(line.get("ismultipack") == expected for line in entry.get("woLines", [])):
-                    return False
-            elif key == "BUID" and entry.get("buid") != expected:
-                return False
-            elif key == "Facility":
-                facilities = (entry.get("shipFromFacility"), entry.get("shipToFacility"))
-                if expected not in facilities:
-                    return False
-            elif key == "Order create_date":
-                if entry.get("createDate") != expected:
-                    return False
-            elif key == "Sales_order_ref":
-                if entry.get("soHeaderRef") != expected:
-                    return False
-            elif key == "FullfillmentID":
-                if entry.get("fulfillmentId") != expected:
-                    return False
-            elif key == "WorkOrderID":
-                if entry.get("woId") != expected:
-                    return False
-        return True
-
-    flat_data = []
-    for item in data:
-        if isinstance(item, dict):
-            for key, val in item.items():
-                if isinstance(val, list):
-                    for rec in val:
-                        if match_optional_fields(rec):
-                            flat_data.append(rec)
-                elif isinstance(val, dict):
-                    if match_optional_fields(val):
-                        flat_data.append(val)
-
-    return flat_data
-
-def apply_filters(data_list, filters):
-    if not filters:
-        return data_list
-
-    def match(record):
-        for key, value in filters.items():
-            values = [v.strip() for v in value.split(',')]
-            if str(record.get(key, '')).strip() not in values:
-                return False
-        return True
-
-    return [item for item in data_list if match(item)]
-
 def getbySalesOrderIDs(salesorderid, format_type):
     combined_data = fetch_and_clean(salesorderid)
     if not combined_data:
         return []
 
-    soheader = combined_data["data"]["getSoheaderBySoids"][0]
-    result = combined_data["data"]["getBySalesorderids"]["result"][0]
-    fulfillment = combined_data["data"]["getFulfillmentsById"][0]["fulfillments"][0]
-    forderline = combined_data["data"]["getAllFulfillmentHeadersByFoId"][0]["forderline"][0]
-    getFulfillmentsBysofulfillmentid = combined_data["data"]["getFulfillmentsBysofulfillmentid"][0]["fulfillments"][0]
-    sourceSystemId = combined_data["data"]["getFulfillmentsBysofulfillmentid"][0]["sourceSystemId"]
-    isDirectShip = combined_data["data"]["getAllFulfillmentHeadersSoidFulfillmentid"][0]["isDirectShip"]
-    ssc = combined_data["data"]["getFbomBySoFulfillmentid"][0]["ssc"]
+    soheader = combined_data["data"].get("getSoheaderBySoids", [{}])[0]
+    result = combined_data["data"].get("getBySalesorderids", {}).get("result", [{}])[0]
+    fulfillment = combined_data["data"].get("getFulfillmentsById", {}).get("fulfillments", [{}])[0]
+    forderline = combined_data["data"].get("getAllFulfillmentHeadersByFoId", {}).get("forderline", [{}])[0]
+    getFulfillmentsBysofulfillmentid = combined_data["data"].get("getFulfillmentsBysofulfillmentid", {}).get("fulfillments", [{}])[0]
+    sourceSystemId = combined_data["data"].get("getFulfillmentsBysofulfillmentid", {}).get("sourceSystemId")
+    isDirectShip = combined_data["data"].get("getAllFulfillmentHeadersSoidFulfillmentid", {}).get("isDirectShip")
+    ssc = combined_data["data"].get("getFbomBySoFulfillmentid", {}).get("ssc")
 
-    wo_ids = [wo for wo in result["workOrders"]]
+    wo_ids = result.get("workOrders", [])
     base = {
-        "BUID": soheader["buid"],
-        "PP Date": soheader["ppDate"],
-        "Sales Order Id": result["salesOrder"]["salesOrderId"],
+        "BUID": soheader.get("buid"),
+        "PP Date": soheader.get("ppDate"),
+        "Sales Order Id": result.get("salesOrder", {}).get("salesOrderId"),
         "Fulfillment Id": fulfillment.get("fulfillmentId"),
-        "Region Code": result["salesOrder"]["region"],
-        "FoId": result["fulfillmentOrders"][0]["foId"],
-        "System Qty": fulfillment["systemQty"],
-        "Ship By Date": fulfillment["shipByDate"],
-        "LOB": fulfillment["salesOrderLines"][0]["lob"],
-        "Ship From Facility": forderline["shipFromFacility"],
-        "Ship To Facility": forderline["shipToFacility"],
-        "Tax Regstrn Num": getFulfillmentsBysofulfillmentid["address"][0]["taxRegstrnNum"],
-        "Address Line1": getFulfillmentsBysofulfillmentid["address"][0]["addressLine1"],
-        "Postal Code": getFulfillmentsBysofulfillmentid["address"][0]["postalCode"],
-        "State Code": getFulfillmentsBysofulfillmentid["address"][0]["stateCode"],
-        "City Code": getFulfillmentsBysofulfillmentid["address"][0]["cityCode"],
-        "Customer Num": getFulfillmentsBysofulfillmentid["address"][0]["customerNum"],
-        "Customer Name Ext": getFulfillmentsBysofulfillmentid["address"][0]["customerNameExt"],
-        "Country": getFulfillmentsBysofulfillmentid["address"][0]["country"],
-        "Create Date": getFulfillmentsBysofulfillmentid["address"][0]["createDate"],
-        "Ship Code": getFulfillmentsBysofulfillmentid["shipCode"],
-        "Must Arrive By Date": getFulfillmentsBysofulfillmentid["mustArriveByDate"],
-        "Update Date": getFulfillmentsBysofulfillmentid["updateDate"],
-        "Merge Type": getFulfillmentsBysofulfillmentid["mergeType"],
-        "Manifest Date": getFulfillmentsBysofulfillmentid["manifestDate"],
-        "Revised Delivery Date": getFulfillmentsBysofulfillmentid["revisedDeliveryDate"],
-        "Delivery City": getFulfillmentsBysofulfillmentid["deliveryCity"],
+        "Region Code": result.get("salesOrder", {}).get("region"),
+        "FoId": result.get("fulfillmentOrders", [{}])[0].get("foId"),
+        "System Qty": fulfillment.get("systemQty"),
+        "Ship By Date": fulfillment.get("shipByDate"),
+        "LOB": fulfillment.get("salesOrderLines", [{}])[0].get("lob"),
+        "Ship From Facility": forderline.get("shipFromFacility"),
+        "Ship To Facility": forderline.get("shipToFacility"),
+        "Tax Regstrn Num": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("taxRegstrnNum"),
+        "Address Line1": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("addressLine1"),
+        "Postal Code": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("postalCode"),
+        "State Code": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("stateCode"),
+        "City Code": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("cityCode"),
+        "Customer Num": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("customerNum"),
+        "Customer Name Ext": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("customerNameExt"),
+        "Country": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("country"),
+        "Create Date": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("createDate"),
+        "Ship Code": getFulfillmentsBysofulfillmentid.get("shipCode"),
+        "Must Arrive By Date": getFulfillmentsBysofulfillmentid.get("mustArriveByDate"),
+        "Update Date": getFulfillmentsBysofulfillmentid.get("updateDate"),
+        "Merge Type": getFulfillmentsBysofulfillmentid.get("mergeType"),
+        "Manifest Date": getFulfillmentsBysofulfillmentid.get("manifestDate"),
+        "Revised Delivery Date": getFulfillmentsBysofulfillmentid.get("revisedDeliveryDate"),
+        "Delivery City": getFulfillmentsBysofulfillmentid.get("deliveryCity"),
         "Source System Id": sourceSystemId,
         "IsDirect Ship": isDirectShip,
         "SSC": ssc,
-        "OIC Id": getFulfillmentsBysofulfillmentid["oicId"],
-        "Order Date": soheader["orderDate"]
+        "OIC Id": getFulfillmentsBysofulfillmentid.get("oicId"),
+        "Order Date": soheader.get("orderDate")
     }
 
     flat_list = []
@@ -213,56 +112,3 @@ def getbySalesOrderIDs(salesorderid, format_type):
             flat_list.append({**base, **flat_wo, "SN Number": None})
 
     return flat_list
-
-def getbySalesOrderID(salesorderid, format_type, region, filters=None):
-    filters = filters or {}
-
-    if not salesorderid and "Sales_Order_id" in filters:
-        value = filters.pop("Sales_Order_id")
-        salesorderid = [s.strip() for s in value.split(",")]
-
-    if not salesorderid:
-        return get_by_combination(filters, region, format_type)
-
-    total_output = []
-
-    def fetch_order(so_id):
-        try:
-            return getbySalesOrderIDs(salesorderid=so_id, format_type=format_type)
-        except Exception as e:
-            print(f"Error for {so_id}: {e}")
-            return []
-
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(fetch_order, sid) for sid in salesorderid]
-        for future in as_completed(futures):
-            total_output.extend(future.result())
-
-    total_output = [{k: ("" if v is None else v) for k, v in row.items()} for row in total_output]
-    total_output = apply_filters(total_output, filters)
-
-    if format_type == "export":
-        return total_output
-    elif format_type == "grid":
-        return total_output
-    else:
-        return {"error": "Invalid format type"}
-
-if __name__ == "__main__":
-    format_type = "grid"
-    region = "EMEA"
-    salesorderid = []
-    filters = {
-        "Sales_Order_id": "1004452326",
-        "FullfillmentID": "262135",
-        "WorkOrderID": "7360928459"
-    }
-
-    output = getbySalesOrderID(
-        salesorderid=salesorderid,
-        format_type=format_type,
-        region=region,
-        filters=filters
-    )
-
-    print(json.dumps(output, indent=2))
