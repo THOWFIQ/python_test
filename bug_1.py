@@ -92,12 +92,23 @@ def get_by_combination(filters: dict, region: str, format_type: str = "export"):
         except Exception as e:
             print("Invalid order_date range format:", e)
 
-    flat_data = []
+    # Merge all dictionaries
+    combined = {}
     for record in data:
-        flat = flatten_dict(record)
-        flat_data.append(flat)
+        for key, value in record.items():
+            if key not in combined:
+                combined[key] = value
+            else:
+                if isinstance(combined[key], list) and isinstance(value, list):
+                    combined[key].extend(value)
+                elif isinstance(combined[key], dict) and isinstance(value, dict):
+                    combined[key].update(value)
+                else:
+                    combined[key] = value
 
+    flat_data = [flatten_dict(combined)]
     flat_data = [{k: ("" if v is None else v) for k, v in row.items()} for row in flat_data]
+
     if format_type == "export":
         return json.dumps(flat_data, indent=2)
     elif format_type == "grid":
