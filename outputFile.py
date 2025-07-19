@@ -39,10 +39,7 @@ Export Output
         "Tax Regstrn Num": "TX987654",
         "Update Date": "2025-06-04T09:06:35.542619",
         "Vendor Work Order Num": "7360970693",
-        "logs": {
-            "urls": [],
-            "time": []
-        }
+        
     },
     {
         "Address Line1": "123 Main Street",
@@ -752,9 +749,34 @@ grid Out Put
                 }
             ]
         }
-    ],
-    "logs": {
-        "urls": [],
-        "time": []
-    }
+    ]
 }
+
+
+error output
+
+Export Output
+[
+  {
+    "getWorkOrderById[0].channelStatusCode": "400",
+    "getWorkOrderById[0].woLines[0].ismultipack": "",
+    "getWorkOrderById[0].woLines[1].ismultipack": "",
+    "getWorkOrderById[0].woLines[2].ismultipack": "",
+    "getWorkOrderById[0].woLines[3].ismultipack": "",
+    "getWorkOrderById[0].shipMode": "A",
+    "getWorkOrderById[0].updateDate": "2025-06-04T20:40:09.815376",
+    "getWorkOrderById[0].isOtmEnabled": "Y",
+    "getWorkOrderById[0].woId": "7360928459",
+    "getWorkOrderById[0].shipToFacility": "C"
+  },
+  {
+    "getFulfillmentsById[0].soHeaderRef": "7336030611445604352",
+    "getFulfillmentsById[0].buid": 202,
+    "getFulfillmentsById[0].salesOrderId": "1004543337",
+    "getFulfillmentsById[0].region": "England",
+    "getFulfillmentsById[0].fulfillments[0].systemQty": "",
+    "getFulfillmentsById[0].fulfillments[0].shipByDate": "",
+    "getFulfillmentsById[0].fulfillments[0].updateDate": "2025-06-04T09:06:35.542619",
+    "getFulfillmentsById[0].fulfillments[0].salesOrderLines[0].lob": ""
+  }
+]
