@@ -180,3 +180,6 @@ if __name__ == "__main__":
 
     result = fileldValidation(filters=filters, format_type=format_type, region=region)
     print(json.dumps(result, indent=2))
+
+Error in Fullfillment Id fetch: fetch_fulfillment_query() takes 0 positional arguments but 1 was given
+Error in Fullfillment Id fetch: fetch_fulfillment_query() takes 0 positional arguments but 1 was given
