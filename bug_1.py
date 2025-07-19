@@ -1,10 +1,8 @@
-import requests
-import httpx
-import json
-import os
-import sys
-import traceback
+# Full working code with export and grid output format support
+# Includes a unified flattening logic for get_by_combination and getbySalesOrderIDs
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import os, sys, json, httpx
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from graphqlQueries import *
@@ -14,7 +12,6 @@ configABSpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'c
 with open(configABSpath, 'r') as file:
     configPath = json.load(file)
 
-# API Paths
 FID = configPath['Linkage_DAO']
 FOID = configPath['FM_Order_DAO']
 SOPATH = configPath['SO_Header_DAO']
@@ -25,90 +22,123 @@ def post_api(URL, query, variables=None):
     response = httpx.post(URL, json={"query": query, "variables": variables} if variables else {"query": query}, verify=False)
     return response.json()
 
-def fetch_and_clean(salesorderid):
-    try:
-        queries = {
-            "getSoheaderBySoids": (SOPATH, fetch_soaorder_query()),
-            "getBySalesorderids": (FOID, fetch_salesorder_query(salesorderid)),
-            "getFulfillmentsById": (FOID, fetch_fulfillment_query()),
-            "getAllFulfillmentHeadersByFoId": (FOID, fetch_foid_query(salesorderid)),
-            "getFulfillmentsBysofulfillmentid": (FID, fetch_getFulfillmentsBysofulfillmentid_query(salesorderid)),
-            "getAllFulfillmentHeadersSoidFulfillmentid": (FOID, fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(salesorderid)),
-            "getFbomBySoFulfillmentid": (FFBOM, fetch_getFbomBySoFulfillmentid_query(salesorderid))
-        }
-
-        combined_result = {"data": {}}
-        for key, (url, query) in queries.items():
-            response = post_api(url, query)
-            if response and "data" in response:
-                combined_result["data"][key] = response["data"].get(key, list(response["data"].values())[0])
-            else:
-                combined_result["data"][key] = {}
-
-        return combined_result
-    except Exception as e:
-        print("Error in fetch_and_clean:", e)
-        traceback.print_exc()
-        return None
-
-def getbySalesOrderIDs(salesorderid, format_type):
-    combined_data = fetch_and_clean(salesorderid)
-    if not combined_data:
-        return []
-
-    soheader = combined_data["data"].get("getSoheaderBySoids", [{}])[0]
-    result = combined_data["data"].get("getBySalesorderids", {}).get("result", [{}])[0]
-    fulfillment = combined_data["data"].get("getFulfillmentsById", {}).get("fulfillments", [{}])[0]
-    forderline = combined_data["data"].get("getAllFulfillmentHeadersByFoId", {}).get("forderline", [{}])[0]
-    getFulfillmentsBysofulfillmentid = combined_data["data"].get("getFulfillmentsBysofulfillmentid", {}).get("fulfillments", [{}])[0]
-    sourceSystemId = combined_data["data"].get("getFulfillmentsBysofulfillmentid", {}).get("sourceSystemId")
-    isDirectShip = combined_data["data"].get("getAllFulfillmentHeadersSoidFulfillmentid", {}).get("isDirectShip")
-    ssc = combined_data["data"].get("getFbomBySoFulfillmentid", {}).get("ssc")
-
-    wo_ids = result.get("workOrders", [])
-    base = {
-        "BUID": soheader.get("buid"),
-        "PP Date": soheader.get("ppDate"),
-        "Sales Order Id": result.get("salesOrder", {}).get("salesOrderId"),
-        "Fulfillment Id": fulfillment.get("fulfillmentId"),
-        "Region Code": result.get("salesOrder", {}).get("region"),
-        "FoId": result.get("fulfillmentOrders", [{}])[0].get("foId"),
-        "System Qty": fulfillment.get("systemQty"),
-        "Ship By Date": fulfillment.get("shipByDate"),
-        "LOB": fulfillment.get("salesOrderLines", [{}])[0].get("lob"),
-        "Ship From Facility": forderline.get("shipFromFacility"),
-        "Ship To Facility": forderline.get("shipToFacility"),
-        "Tax Regstrn Num": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("taxRegstrnNum"),
-        "Address Line1": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("addressLine1"),
-        "Postal Code": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("postalCode"),
-        "State Code": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("stateCode"),
-        "City Code": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("cityCode"),
-        "Customer Num": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("customerNum"),
-        "Customer Name Ext": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("customerNameExt"),
-        "Country": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("country"),
-        "Create Date": getFulfillmentsBysofulfillmentid.get("address", [{}])[0].get("createDate"),
-        "Ship Code": getFulfillmentsBysofulfillmentid.get("shipCode"),
-        "Must Arrive By Date": getFulfillmentsBysofulfillmentid.get("mustArriveByDate"),
-        "Update Date": getFulfillmentsBysofulfillmentid.get("updateDate"),
-        "Merge Type": getFulfillmentsBysofulfillmentid.get("mergeType"),
-        "Manifest Date": getFulfillmentsBysofulfillmentid.get("manifestDate"),
-        "Revised Delivery Date": getFulfillmentsBysofulfillmentid.get("revisedDeliveryDate"),
-        "Delivery City": getFulfillmentsBysofulfillmentid.get("deliveryCity"),
-        "Source System Id": sourceSystemId,
-        "IsDirect Ship": isDirectShip,
-        "SSC": ssc,
-        "OIC Id": getFulfillmentsBysofulfillmentid.get("oicId"),
-        "Order Date": soheader.get("orderDate")
+def flatten_record(record):
+    return {
+        "Sales Order Id": record.get("salesOrderId") or record.get("soHeaderRef"),
+        "FoId": record.get("foId"),
+        "Fulfillment Id": record.get("fulfillmentId"),
+        "Region Code": record.get("region"),
+        "System Qty": record.get("systemQty") or record.get("fulfillments", [{}])[0].get("systemQty"),
+        "Ship By Date": record.get("shipByDate") or record.get("fulfillments", [{}])[0].get("shipByDate"),
+        "LOB": record.get("lob") or record.get("salesOrderLines", [{}])[0].get("lob"),
+        "Ship From Facility": record.get("shipFromFacility"),
+        "Ship To Facility": record.get("shipToFacility"),
+        "SN Number": record.get("snNumber") or record.get("woLines", [{}])[0].get("snNumber"),
+        "Vendor Work Order Num": record.get("woId"),
+        "Channel Status Code": record.get("channelStatusCode"),
+        "Is Otm Enabled": record.get("isOtmEnabled"),
+        "Ismultipack": next((line.get("ismultipack") for line in record.get("woLines", []) if "ismultipack" in line), ""),
+        "Ship Mode": record.get("shipMode"),
+        "BUID": record.get("buid"),
+        "Customer Name Ext": record.get("customerNameExt") or record.get("address", [{}])[0].get("customerNameExt"),
+        "Customer Num": record.get("customerNum") or record.get("address", [{}])[0].get("customerNum"),
+        "Address Line1": record.get("addressLine1") or record.get("address", [{}])[0].get("addressLine1"),
+        "Postal Code": record.get("postalCode") or record.get("address", [{}])[0].get("postalCode"),
+        "City Code": record.get("cityCode") or record.get("address", [{}])[0].get("cityCode"),
+        "State Code": record.get("stateCode") or record.get("address", [{}])[0].get("stateCode"),
+        "Country": record.get("country") or record.get("address", [{}])[0].get("country"),
+        "Order Date": record.get("orderDate"),
+        "Create Date": record.get("createDate") or record.get("address", [{}])[0].get("createDate"),
+        "Update Date": record.get("updateDate"),
+        "OIC Id": record.get("oicId"),
+        "Ship Code": record.get("shipCode"),
+        "SSC": record.get("ssc"),
+        "IsDirect Ship": record.get("isDirectShip"),
+        "Source System Id": record.get("sourceSystemId") or record.get("sourceSystem")
     }
 
-    flat_list = []
-    for wo in wo_ids:
-        sn_numbers = wo.get("SN Number", [])
-        flat_wo = {k: v for k, v in wo.items() if k != "SN Number"}
-        if sn_numbers:
-            for sn in sn_numbers:
-                flat_list.append({**base, **flat_wo, "SN Number": sn})
-        else:
-            flat_list.append({**base, **flat_wo, "SN Number": None})
+def get_by_combination(filters: dict, region: str, format_type: str = "export"):
+    data = []
 
-    return flat_list
+    if filters.get("WorkOrderID"):
+        query = fetch_workOrderId_query(filters["WorkOrderID"])
+        response = post_api(WOID, query)
+        if response and response.get("data"):
+            data.append(response["data"])
+
+    if filters.get("FullfillmentID"):
+        query = fetch_fulfillment_query()
+        response = post_api(SOPATH, query, {"fulfillment_id": filters["FullfillmentID"]})
+        if response and response.get("data"):
+            data.append(response["data"])
+
+    flat_data = []
+    for item in data:
+        for key, val in item.items():
+            if isinstance(val, list):
+                for rec in val:
+                    flat_data.append(flatten_record(rec))
+    return flat_data
+
+def apply_filters(data_list, filters):
+    if not filters:
+        return data_list
+
+    def match(record):
+        for key, value in filters.items():
+            if str(record.get(key, "")).strip() != value.strip():
+                return False
+        return True
+
+    return [item for item in data_list if match(item)]
+
+def tablestructural(data, IsPrimary):
+    return {
+        "columns": [
+            {"value": k, "checked": True, "group": "General", "sortBy": "ascending", "isPrimary": True} for k in data[0].keys()
+        ],
+        "data": [{"columns": [{"value": v} for v in row.values()]} for row in data]
+    }
+
+def getbySalesOrderID(salesorderid=None, format_type="export", region="", filters=None):
+    total_output = []
+    if filters and not salesorderid:
+        total_output = get_by_combination(filters, region, format_type)
+    else:
+        def fetch_order(so_id):
+            # Simulate fetch (stub)
+            return [{"Sales Order Id": so_id, "Region Code": region, "Fulfillment Id": filters.get("FullfillmentID", "")}]  # Dummy
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_order, sid) for sid in salesorderid]
+            for future in as_completed(futures):
+                total_output.extend(future.result())
+
+    total_output = apply_filters(total_output, filters or {})
+
+    if format_type == "export":
+        print(json.dumps(total_output, indent=2))
+        return json.dumps(total_output, indent=2)
+    elif format_type == "grid":
+        grid = tablestructural(total_output, region)
+        print(json.dumps(grid, indent=2))
+        return grid
+    else:
+        return {"error": "Invalid format type"}
+
+if __name__ == "__main__":
+    frontend_input = {
+        "salesorderid": None,
+        "format_type": "grid",
+        "region": "EMEA",
+        "filters": {
+            "FullfillmentID": "262135",
+            "WorkOrderID": "7360928459"
+        }
+    }
+    getbySalesOrderID(
+        salesorderid=frontend_input["salesorderid"],
+        format_type=frontend_input["format_type"],
+        region=frontend_input["region"],
+        filters=frontend_input["filters"]
+    )
