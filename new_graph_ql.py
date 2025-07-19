@@ -317,7 +317,7 @@ def fetch_getAsn_query(asn_numbers):
     }}
     """
 
-def fetch_getAsnbySn_query(sn_numbers)
+def fetch_getAsnbySn_query(sn_numbers):
   return f"""
     query MyQuery {{
       getAsnBySn(snNumbers: "{sn_numbers}") {{
