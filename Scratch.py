@@ -165,3 +165,5 @@ if __name__ == "__main__":
 
     result = fileldValidation(filters=filters, format_type=format_type, region=region)
     print(json.dumps(result, indent=2))
+
+TypeError: fetch_salesorder_query() missing 1 required positional argument: 'salesorderIds'
