@@ -2,6 +2,12 @@ import os
 import sys
 import json
 
+def load_config():
+    # current_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
+    with open(config_path, "r") as f:
+        return json.load(f)
+
 def fetch_soaorder_query():
     return """
     query MyQuery($salesorderIds: [String!]!) {
@@ -37,22 +43,33 @@ def fetch_salesorder_query(salesorderIds):
     query MyQuery {{
       getBySalesorderids(salesorderIds: "{salesorderIds}") {{
         result {{
+          asnNumbers {{
+            shipDate
+            shipFrom
+            shipTo
+            snNumber
+            sourceManifestId
+            sourceManifestStatus
+          }}
           fulfillment {{
             fulfillmentId
-          }}
-          salesOrder {{
-            salesOrderId
-            buid
-            region
-          }}
-          workOrders {{
-            woId
+            fulfillmentStatus
+            oicId
+            sourceSystemStatus
           }}
           fulfillmentOrders {{
             foId
           }}
-          asnNumbers {{
-            snNumber
+          salesOrder {{
+            buid
+            region
+            salesOrderId
+          }}
+          workOrders {{
+            channelStatusCode
+            woId
+            woStatusCode
+            woType
           }}
         }}
       }}
@@ -80,23 +97,36 @@ def fetch_getByWorkorderids_query(workOrderId):
     return f"""
     query MyQuery {{
         getByWorkorderids(workorderIds: "{workOrderId}") {{
-        result {{
+          result {{
             asnNumbers {{
-            snNumber
+              shipDate
+              shipFrom
+              shipTo
+              snNumber
+              sourceManifestId
+              sourceManifestStatus
             }}
             fulfillment {{
-            fulfillmentId
+              fulfillmentId
+              fulfillmentStatus
+              oicId
+              sourceSystemStatus
             }}
-            salesOrder{{
-            salesOrderId
-            }},
-            fulfillmentOrders{{
-            foId
+            fulfillmentOrders {{
+              foId
+            }}
+            salesOrder {{
+              buid
+              region
+              salesOrderId
             }}
             workOrder {{
-            woId
+              channelStatusCode
+              woId
+              woStatusCode
+              woType
             }}
-        }}
+          }}
         }}
     }}
     """
@@ -167,20 +197,34 @@ def fetch_getByFulfillmentids_query(fulfillmentid):
     query MyQuery {{
       getByFulfillmentids(fulfillmentIds: "{fulfillmentid}") {{
         result {{
-          salesOrder {{
-            salesOrderId
-            buid
-            region
-          }}
-          workOrders {{
-            woId
-            channelStatusCode
-          }}
           fulfillment {{
+            fulfillmentId
+            fulfillmentStatus
             oicId
+            sourceSystemStatus
           }}
           fulfillmentOrders {{
             foId
+          }}
+          salesOrder {{
+            buid
+            region
+            salesOrderId
+          }}
+          workOrders {{
+            channelStatusCode
+            createDate
+            woId
+            woStatusCode
+            woType
+          }}
+          asnNumbers {{
+            shipDate
+            shipFrom
+            shipTo
+            snNumber
+            sourceManifestId
+            sourceManifestStatus
           }}
         }}
       }}
@@ -205,6 +249,89 @@ def fetch_getOrderDate_query(orderFromDate, orderToDate):
                 systemQty
             }}
         }}
+    }}
+    """
+def fetch_getkeys_query(fulfillmentid,salesorderIds):
+  return f"""
+    query MyQuery {{
+      getKeys(fulfillmentId: "{fulfillment_id}", salesOrderId: "{sales_order_id}") {{
+        fulfillmentOrder {{
+          foId
+        }}
+        workorder {{
+          parentWoId
+          woId
+        }}
+        salesOrderId
+        fulfillmentId
+      }}
+    }}
+  """
+
+def fetch_getparentwoid_query(wo_ids):
+  return f"""
+    query MyQuery {{
+      getParentwoids(woIds: "{wo_ids}") {{
+        parentWoId
+        woId
+      }}
+    }}
+    """
+def fetch_getAsn_query(asn_numbers):
+ return f"""
+    query MyQuery {{
+      getByAsn(asnNumbers: "{asn_numbers}") {{
+        result {{
+          asnNumber {{
+            shipDate
+            shipFrom
+            shipTo
+            snNumber
+            sourceManifestId
+            sourceManifestStatus
+          }}
+          salesOrders {{
+            fulfillment {{
+              fulfillmentId
+              fulfillmentStatus
+              oicId
+              sourceSystemStatus
+            }}
+            fulfillmentOrders {{
+              foId
+            }}
+            salesOrder {{
+              buid
+              region
+              salesOrderId
+            }}
+            workOrder {{
+              channelStatusCode
+              woId
+              woStatusCode
+              woType
+            }}
+          }}
+        }}
+      }}
+    }}
+    """
+
+def fetch_getAsnbySn_query(sn_numbers)
+  return f"""
+    query MyQuery {{
+      getAsnBySn(snNumbers: "{sn_numbers}") {{
+        result {{
+          asnNumbers {{
+            shipDate
+            shipFrom
+            shipTo
+            sourceManifestId
+            sourceManifestStatus
+          }}
+          snNumber
+        }}
+      }}
     }}
     """
 
@@ -293,9 +420,3 @@ def get_path(region, path, configPath):
             return configPath.get('FM_BOM_EMEA_APJ')
 
     return None
-
-def load_config():
-    # current_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
-    with open(config_path, "r") as f:
-        return json.load(f)
