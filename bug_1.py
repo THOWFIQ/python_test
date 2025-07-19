@@ -112,7 +112,16 @@ def get_by_combination(filters: dict, region: str, format_type: str = "export"):
                     if match_optional_fields(val):
                         flat_data.append(val)
 
-    return flat_data
+    flat_data = [{k: ("" if v is None else v) for k, v in row.items()} for row in flat_data]
+    if format_type == "export":
+        print(json.dumps(flat_data, indent=2))
+        return json.dumps(flat_data, indent=2)
+    elif format_type == "grid":
+        table_grid_output = tablestructural(data=flat_data, IsPrimary=region)
+        print(json.dumps(table_grid_output, indent=2))
+        return table_grid_output
+    else:
+        return {"error": "Invalid format type"}
 
 def apply_filters(data_list, filters):
     if not filters:
@@ -191,6 +200,7 @@ if __name__ == "__main__":
         region="EMEA",
         filters={
             "Fullfillment Id": "262135",
-            "wo_id ": "7360928459"
+            "wo_id": "7360928459"
         }
     )
+    print(output)
