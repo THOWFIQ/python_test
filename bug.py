@@ -1,237 +1,777 @@
-from flask import request, jsonify
-import requests
-import httpx
-import json
-import os
-import sys
-import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
+input given from front end 
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from graphqlQueries import *
-
-# Load config
-configABSpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
-with open(configABSpath, 'r') as file:
-    configPath = json.load(file)
-
-FID    = configPath['Linkage_DAO']
-FOID   = configPath['FM_Order_DAO']
-SOPATH = configPath['SO_Header_DAO']
-WOID   = configPath['WO_Details_DAO']
-FFBOM  = configPath['FM_BOM_DAO']
-
-def post_api(URL, query, variables):
-    try:
-        if variables:
-            response = httpx.post(SOPATH, json={"query": query, "variables": variables}, verify=False)
-        else:
-            response = httpx.post(URL, json={"query": query}, verify=False)
-        return response.json()
-    except Exception as e:
-        print(f"API error: {e}")
-        return {}
-
-def safe_get(data, keys, default=None):
-    for key in keys:
-        if isinstance(data, list):
-            if not data:
-                return default
-            data = data[0]
-        if isinstance(data, dict):
-            data = data.get(key)
-            if data is None:
-                return default
-        else:
-            return default
-    return data
-
-def fetch_and_clean(salesorderIds):
-    combined_data = {'data': {}}
-    soi = {"salesorderIds": [salesorderIds]}
-    soaorder_query = fetch_soaorder_query()
-    soaorder = post_api(SOPATH, soaorder_query, soi)
-    if soaorder and soaorder.get('data'):
-        combined_data['data']['getSoheaderBySoids'] = soaorder['data']['getSoheaderBySoids']
-
-    salesorder_query = fetch_salesorder_query(salesorderIds)
-    salesorder = post_api(FID, salesorder_query, None)
-    if salesorder and salesorder.get('data'):
-        combined_data['data']['getBySalesorderids'] = salesorder['data']['getBySalesorderids']
-
-    result_list = salesorder.get("data", {}).get("getBySalesorderids", {}).get("result", [])
-    if not result_list:
-        return None
-
-    work_orders = result_list[0].get("workOrders", [])
-    for wo in work_orders:
-        woId = wo.get("woId")
-        if not woId:
-            continue
-
-        workOrderId_query = fetch_workOrderId_query(woId)
-        getWorkOrderById = post_api(WOID, workOrderId_query, None)
-
-        getByWorkorderids_query = fetch_getByWorkorderids_query(woId)
-        getByWorkorderids = post_api(FID, getByWorkorderids_query, None)
-
-        sn_numbers = [
-            sn.get("snNumber")
-            for sn in getByWorkorderids.get("data", {}).get("getByWorkorderids", {}).get("result", [])[0].get("asnNumbers", [])
-            if sn.get("snNumber")
-        ] if getByWorkorderids.get("data") else []
-
-        if getWorkOrderById.get('data'):
-            wo_detail = getWorkOrderById["data"].get("getWorkOrderById", [{}])[0]
-            flat_wo = {
-                "Vendor Work Order Num": wo_detail.get("woId"),
-                "Channel Status Code": wo_detail.get("channelStatusCode"),
-                "Ismultipack": safe_get(wo_detail, ["woLines", 0, "ismultipack"]),
-                "Ship Mode": wo_detail.get("shipMode"),
-                "Is Otm Enabled": wo_detail.get("isOtmEnabled"),
-                "SN Number": sn_numbers
-            }
-            for i, w in enumerate(work_orders):
-                if w.get("woId") == wo_detail.get("woId"):
-                    work_orders[i] = flat_wo.copy()
-
-    fulfillment_raw = result_list[0].get("fulfillment")
-    fulfillment_id = (
-        fulfillment_raw[0].get("fulfillmentId") if isinstance(fulfillment_raw, list) and fulfillment_raw else
-        fulfillment_raw.get("fulfillmentId") if isinstance(fulfillment_raw, dict) else None
-    )
-    if not fulfillment_id:
-        return combined_data
-
-    fulfillment_query = fetch_fulfillment_query()
-    fulfillment = post_api(SOPATH, fulfillment_query, {"fulfillment_id": fulfillment_id})
-    if fulfillment and fulfillment.get('data'):
-        combined_data['data']['getFulfillmentsById'] = fulfillment['data']['getFulfillmentsById']
-
-    sofulfill_query = fetch_getFulfillmentsBysofulfillmentid_query(fulfillment_id)
-    sofulfill = post_api(SOPATH, sofulfill_query, None)
-    if sofulfill.get('data'):
-        combined_data['data']['getFulfillmentsBysofulfillmentid'] = sofulfill['data']['getFulfillmentsBysofulfillmentid']
-
-    header_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(fulfillment_id)
-    header = post_api(FOID, header_query, None)
-    if header.get('data'):
-        combined_data['data']['getAllFulfillmentHeadersSoidFulfillmentid'] = header['data']['getAllFulfillmentHeadersSoidFulfillmentid']
-
-    fbom_query = fetch_getFbomBySoFulfillmentid_query(fulfillment_id)
-    fbom = post_api(FFBOM, fbom_query, None)
-    if fbom.get('data'):
-        combined_data['data']['getFbomBySoFulfillmentid'] = fbom['data']['getFbomBySoFulfillmentid']
-
-    fulfillment_orders = result_list[0].get("fulfillmentOrders", [])
-    if fulfillment_orders and fulfillment_orders[0].get("foId"):
-        fo_id = fulfillment_orders[0].get("foId")
-        foid_query = fetch_foid_query(fo_id)
-        foid_output = post_api(FOID, foid_query, None)
-        if foid_output.get('data'):
-            combined_data['data']['getAllFulfillmentHeadersByFoId'] = foid_output['data']['getAllFulfillmentHeadersByFoId']
-
-    return combined_data
-
-def getbySalesOrderIDs(salesorderid, format_type):
-    combined_data = fetch_and_clean(salesorderIds=salesorderid)
-    if not combined_data:
-        return []
-
-    soheader = safe_get(combined_data, ["data", "getSoheaderBySoids", 0], {})
-    result = safe_get(combined_data, ["data", "getBySalesorderids", "result", 0], {})
-
-    fulfillment_raw = result.get("fulfillment")
-    fulfillment_id = (
-        fulfillment_raw[0].get("fulfillmentId") if isinstance(fulfillment_raw, list) and fulfillment_raw else
-        fulfillment_raw.get("fulfillmentId") if isinstance(fulfillment_raw, dict) else None
+output = getbySalesOrderID(
+        salesorderid=["1004452326", "1004543337"],
+        format_type="export",
+        region="EMEA",
+        filters={
+            "Fullfillment Id": "262135",
+            "wo_id ": "7360928459"
+        }
     )
 
-    fulfillment = safe_get(combined_data, ["data", "getFulfillmentsById", 0, "fulfillments", 0], {})
-    forderline = safe_get(combined_data, ["data", "getAllFulfillmentHeadersByFoId", 0, "forderline", 0], {})
-    sofulfill = safe_get(combined_data, ["data", "getFulfillmentsBysofulfillmentid", 0, "fulfillments", 0], {})
-    sourceSystemId = safe_get(combined_data, ["data", "getFulfillmentsBysofulfillmentid", 0, "sourceSystemId"])
-    isDirectShip = safe_get(combined_data, ["data", "getAllFulfillmentHeadersSoidFulfillmentid", 0, "isDirectShip"])
-    ssc = safe_get(combined_data, ["data", "getFbomBySoFulfillmentid", 0, "ssc"])
+out getting like this 
 
-    wo_ids = result.get("workOrders", [])
+[{'soHeaderRef': '7336030611445604352', 'buid': 202, 'salesOrderId': '1004543337', 'region': 'England', 'fulfillments': [{'systemQty': None, 'shipByDate': None, 'updateDate': '2025-06-04T09:06:35.542619', 'salesOrderLines': [{'lob': None}]}]}]
 
-    base = {
-        "BUID": soheader.get("buid"),
-        "PP Date": soheader.get("ppDate"),
-        "Sales Order Id": result.get("salesOrder", {}).get("salesOrderId"),
-        "Fulfillment Id": fulfillment_id,
-        "Region Code": result.get("salesOrder", {}).get("region"),
-        "FoId": safe_get(result, ["fulfillmentOrders", 0, "foId"]),
-        "System Qty": fulfillment.get("systemQty"),
-        "Ship By Date": fulfillment.get("shipByDate"),
-        "LOB": safe_get(fulfillment, ["salesOrderLines", 0, "lob"]),
-        "Ship From Facility": forderline.get("shipFromFacility"),
-        "Ship To Facility": forderline.get("shipToFacility"),
-        "Tax Regstrn Num": safe_get(sofulfill, ["address", 0, "taxRegstrnNum"]),
-        "Address Line1": safe_get(sofulfill, ["address", 0, "addressLine1"]),
-        "Postal Code": safe_get(sofulfill, ["address", 0, "postalCode"]),
-        "State Code": safe_get(sofulfill, ["address", 0, "stateCode"]),
-        "City Code": safe_get(sofulfill, ["address", 0, "cityCode"]),
-        "Customer Num": safe_get(sofulfill, ["address", 0, "customerNum"]),
-        "Customer Name Ext": safe_get(sofulfill, ["address", 0, "customerNameExt"]),
-        "Country": safe_get(sofulfill, ["address", 0, "country"]),
-        "Create Date": safe_get(sofulfill, ["address", 0, "createDate"]),
-        "Ship Code": sofulfill.get("shipCode"),
-        "Must Arrive By Date": sofulfill.get("mustArriveByDate"),
-        "Update Date": sofulfill.get("updateDate"),
-        "Merge Type": sofulfill.get("mergeType"),
-        "Manifest Date": sofulfill.get("manifestDate"),
-        "Revised Delivery Date": sofulfill.get("revisedDeliveryDate"),
-        "Delivery City": sofulfill.get("deliveryCity"),
-        "Source System Id": sourceSystemId,
-        "Is Direct Ship": isDirectShip,
-        "SSC": ssc,
-        "OIC ID": sofulfill.get("oicId"),
-        "Order Date": soheader.get("orderDate")
+but i need 
+if grid mean 
+{
+    "columns": [
+        {
+            "checked": true,
+            "group": "ID",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "BUID"
+        },
+        {
+            "checked": true,
+            "group": "Date",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "PP Date"
+        },
+        {
+            "checked": true,
+            "group": "ID",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Sales Order Id"
+        },
+        {
+            "checked": true,
+            "group": "ID",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Fulfillment Id"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Region Code"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "FoId"
+        },
+        {
+            "checked": true,
+            "group": "Other",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "System Qty"
+        },
+        {
+            "checked": true,
+            "group": "Date",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Ship By Date"
+        },
+        {
+            "checked": true,
+            "group": "Other",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "LOB"
+        },
+        {
+            "checked": true,
+            "group": "Facility",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Ship From Facility"
+        },
+        {
+            "checked": true,
+            "group": "Facility",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Ship To Facility"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Tax Regstrn Num"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Address Line1"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Postal Code"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "State Code"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "City Code"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Customer Num"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Customer Name Ext"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Country"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Create Date"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship Code"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Must Arrive By Date"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Update Date"
+        },
+        {
+            "checked": false,
+            "group": "Type",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Merge Type"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Manifest Date"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Revised Delivery Date"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Delivery City"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Source System Id"
+        },
+        {
+            "checked": false,
+            "group": "Flag",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Is Direct Ship"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "SSC"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Vendor Work Order Num"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Channel Status Code"
+        },
+        {
+            "checked": false,
+            "group": "Flag",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ismultipack"
+        },
+        {
+            "checked": false,
+            "group": "Mode",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship Mode"
+        },
+        {
+            "checked": false,
+            "group": "Flag",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Is Otm Enabled"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "SN Number"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "OIC ID"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Order Date"
+        }
+    ],
+    "data": [
+        {
+            "columns": [
+                {
+                    "value": 202
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "1004543337"
+                },
+                {
+                    "value": "262135"
+                },
+                {
+                    "value": "England"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "EMFC"
+                },
+                {
+                    "value": "COV"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "123 Main Street"
+                },
+                {
+                    "value": "10001"
+                },
+                {
+                    "value": "NY"
+                },
+                {
+                    "value": "NYC"
+                },
+                {
+                    "value": "C12345"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "USA"
+                },
+                {
+                    "value": "2025-06-04T09:06:35.538557"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "2025-06-04T09:06:35.542619"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "OMEGA"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "SSC001"
+                },
+                {
+                    "value": "7360970693"
+                },
+                {
+                    "value": "400"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "A"
+                },
+                {
+                    "value": "Y"
+                },
+                {
+                    "value": "CHVSN20250611110608251"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "2024-12-19T12:34:56"
+                }
+            ]
+        },
+        {
+            "columns": [
+                {
+                    "value": 202
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "1004543337"
+                },
+                {
+                    "value": "262135"
+                },
+                {
+                    "value": "England"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "EMFC"
+                },
+                {
+                    "value": "COV"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "123 Main Street"
+                },
+                {
+                    "value": "10001"
+                },
+                {
+                    "value": "NY"
+                },
+                {
+                    "value": "NYC"
+                },
+                {
+                    "value": "C12345"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "USA"
+                },
+                {
+                    "value": "2025-06-04T09:06:35.538557"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "2025-06-04T09:06:35.542619"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "OMEGA"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "SSC001"
+                },
+                {
+                    "value": "7360928459"
+                },
+                {
+                    "value": "400"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "A"
+                },
+                {
+                    "value": "Y"
+                },
+                {
+                    "value": "C2ZCWA24JXSZ"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "2024-12-19T12:34:56"
+                }
+            ]
+        },
+        {
+            "columns": [
+                {
+                    "value": 202
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "1004543337"
+                },
+                {
+                    "value": "262135"
+                },
+                {
+                    "value": "England"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "EMFC"
+                },
+                {
+                    "value": "COV"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "123 Main Street"
+                },
+                {
+                    "value": "10001"
+                },
+                {
+                    "value": "NY"
+                },
+                {
+                    "value": "NYC"
+                },
+                {
+                    "value": "C12345"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "USA"
+                },
+                {
+                    "value": "2025-06-04T09:06:35.538557"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "2025-06-04T09:06:35.542619"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "OMEGA"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "SSC001"
+                },
+                {
+                    "value": "7360928459"
+                },
+                {
+                    "value": "400"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "A"
+                },
+                {
+                    "value": "Y"
+                },
+                {
+                    "value": "ORI5H54EGUKU"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "2024-12-19T12:34:56"
+                }
+            ]
+        }
+    ],
+    "logs": {
+        "urls": [],
+        "time": []
     }
+}
 
-    flat_list = []
-    for wo in wo_ids:
-        sn_numbers = wo.get("SN Number", [])
-        flat_wo = {k: v for k, v in wo.items() if k != "SN Number"}
-        if sn_numbers:
-            for sn in sn_numbers:
-                flat_list.append({**base, **flat_wo, "SN Number": sn})
-        else:
-            flat_list.append({**base, **flat_wo, "SN Number": None})
+if export mean
 
-    return flat_list
-
-def getbyOrderDateRange(orderFromDate, orderToDate, format_type, region):
-    total_output = []
-    query = fetch_getOrderDate_query(orderFromDate, orderToDate)
-    response = post_api(SOPATH, query=query, variables=None)
-    records = response.get("data", {}).get("getOrdersByDate", {}).get("result", [])
-    if not records:
-        return {"message": "No records for date range."}
-
-    def fetch_by_id(record):
-        try:
-            salesorderid = record.get("salesOrderId")
-            return getbySalesOrderIDs(salesorderid, format_type)
-        except Exception as e:
-            print(f"Error fetching order ID {record.get('salesOrderId')}: {e}")
-            return []
-
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(fetch_by_id, r) for r in records]
-        for future in as_completed(futures):
-            try:
-                result = future.result()
-                if isinstance(result, list):
-                    total_output.extend(result)
-            except Exception as e:
-                print(f"Thread error: {e}")
-
-    if format_type == "export":
-        return json.dumps(total_output, indent=2)
-    elif format_type == "grid":
-        return json.dumps(tablestructural(total_output, IsPrimary=region), indent=2)
-    else:
-        return {"error": "Invalid format type"}
+[
+    {
+        "Address Line1": "123 Main Street",
+        "BUID": 202,
+        "Channel Status Code": "400",
+        "City Code": "NYC",
+        "Country": "USA",
+        "Create Date": "2025-06-04T09:06:35.538557",
+        "Customer NameExt": "John A. Doe",
+        "Customer Num": "C12345",
+        "Delivery City": "",
+        "FOID": "7336030653629440001",
+        "Fulfillment Id": "262135",
+        "Is Otm Enabled": "Y",
+        "IsDirect Ship": "",
+        "Ismultipack": "",
+        "LOB": "",
+        "Manifest Date": "",
+        "Merge Type": "",
+        "Must Arrive By Date": "",
+        "OIC Id": "1eaf6101-b42b-4bc9-9036-98ee27442039",
+        "Order Date": "2024-12-19T12:34:56",
+        "PP Date": "",
+        "Postal Code": "10001",
+        "Region Code": "England",
+        "Revised Delivery Date": "",
+        "SN Number": "CHVSN20250611110608251",
+        "SSC": "SSC001",
+        "Sales Order Id": "1004543337",
+        "Ship By Date": "",
+        "Ship Code": "",
+        "Ship From Facility": "EMFC",
+        "Ship Mode": "A",
+        "Ship To Facility": "COV",
+        "Source System Id": "OMEGA",
+        "State Code": "NY",
+        "System Qty": "",
+        "Tax Regstrn Num": "TX987654",
+        "Update Date": "2025-06-04T09:06:35.542619",
+        "Vendor Work Order Num": "7360970693",
+        "logs": {
+            "urls": [],
+            "time": []
+        }
+    },
+    {
+        "Address Line1": "123 Main Street",
+        "BUID": 202,
+        "Channel Status Code": "400",
+        "City Code": "NYC",
+        "Country": "USA",
+        "Create Date": "2025-06-04T09:06:35.538557",
+        "Customer NameExt": "John A. Doe",
+        "Customer Num": "C12345",
+        "Delivery City": "",
+        "FOID": "7336030653629440001",
+        "Fulfillment Id": "262135",
+        "Is Otm Enabled": "Y",
+        "IsDirect Ship": "",
+        "Ismultipack": "",
+        "LOB": "",
+        "Manifest Date": "",
+        "Merge Type": "",
+        "Must Arrive By Date": "",
+        "OIC Id": "1eaf6101-b42b-4bc9-9036-98ee27442039",
+        "Order Date": "2024-12-19T12:34:56",
+        "PP Date": "",
+        "Postal Code": "10001",
+        "Region Code": "England",
+        "Revised Delivery Date": "",
+        "SN Number": "C2ZCWA24JXSZ",
+        "SSC": "SSC001",
+        "Sales Order Id": "1004543337",
+        "Ship By Date": "",
+        "Ship Code": "",
+        "Ship From Facility": "EMFC",
+        "Ship Mode": "A",
+        "Ship To Facility": "COV",
+        "Source System Id": "OMEGA",
+        "State Code": "NY",
+        "System Qty": "",
+        "Tax Regstrn Num": "TX987654",
+        "Update Date": "2025-06-04T09:06:35.542619",
+        "Vendor Work Order Num": "7360928459"
+    },
+    {
+        "Address Line1": "123 Main Street",
+        "BUID": 202,
+        "Channel Status Code": "400",
+        "City Code": "NYC",
+        "Country": "USA",
+        "Create Date": "2025-06-04T09:06:35.538557",
+        "Customer NameExt": "John A. Doe",
+        "Customer Num": "C12345",
+        "Delivery City": "",
+        "FOID": "7336030653629440001",
+        "Fulfillment Id": "262135",
+        "Is Otm Enabled": "Y",
+        "IsDirect Ship": "",
+        "Ismultipack": "",
+        "LOB": "",
+        "Manifest Date": "",
+        "Merge Type": "",
+        "Must Arrive By Date": "",
+        "OIC Id": "1eaf6101-b42b-4bc9-9036-98ee27442039",
+        "Order Date": "2024-12-19T12:34:56",
+        "PP Date": "",
+        "Postal Code": "10001",
+        "Region Code": "England",
+        "Revised Delivery Date": "",
+        "SN Number": "ORI5H54EGUKU",
+        "SSC": "SSC001",
+        "Sales Order Id": "1004543337",
+        "Ship By Date": "",
+        "Ship Code": "",
+        "Ship From Facility": "EMFC",
+        "Ship Mode": "A",
+        "Ship To Facility": "COV",
+        "Source System Id": "OMEGA",
+        "State Code": "NY",
+        "System Qty": "",
+        "Tax Regstrn Num": "TX987654",
+        "Update Date": "2025-06-04T09:06:35.542619",
+        "Vendor Work Order Num": "7360928459"
+    }
+]
