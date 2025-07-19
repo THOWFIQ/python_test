@@ -150,14 +150,14 @@ def flatten_table(data_rows):
 if __name__ == "__main__":
     sample_filters = [
         {
-            "Sales_Order_id": "SO123456789",
+            "Sales_Order_id": "1004543337",
             "foid": "FO999999",
-            "Fullfillment_Id": "FULFILL123",
-            "wo_id": "WO321654",
+            "Fullfillment_Id": "262135",
+            "wo_id": "7360928459",
             "Sales_order_ref": "REF123456",
             "Order_create_date": "2025-07-15",
             "ISMULTIPACK": "Yes",
-            "BUID": "BUID001",
+            "BUID": "202",
             "Facility": "WH_BANGALORE",
             "Manifest_ID": "MANI0001"
         }
