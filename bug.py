@@ -22,11 +22,9 @@ SOPATH = configPath['SO_Header_DAO']
 WOID = configPath['WO_Details_DAO']
 FFBOM = configPath['FM_BOM_DAO']
 
-
 def post_api(URL, query, variables=None):
     response = httpx.post(URL, json={"query": query, "variables": variables} if variables else {"query": query}, verify=False)
     return response.json()
-
 
 def get_by_combination(filters: dict, region: str, format_type: str = "export"):
     data = []
@@ -116,7 +114,6 @@ def get_by_combination(filters: dict, region: str, format_type: str = "export"):
 
     return flat_data
 
-
 def apply_filters(data_list, filters):
     if not filters:
         return data_list
@@ -130,11 +127,32 @@ def apply_filters(data_list, filters):
 
     return [item for item in data_list if match(item)]
 
-
 def getbySalesOrderIDs(salesorderid, format_type):
     from .data_collector import collect_data  # Your actual collector method
     return collect_data(salesorderid, format_type)
 
+def tablestructural(data, IsPrimary):
+    unique_keys = list({key for row in data for key in row.keys()})
+    columns = [
+        {
+            "checked": True if key in ["BUID", "PP Date", "Sales Order Id", "Fulfillment Id", "System Qty", "Ship By Date", "LOB", "Ship From Facility", "Ship To Facility"] else False,
+            "group": "ID" if "Id" in key or "Num" in key else "Date" if "Date" in key else "Address" if "Address" in key else "Facility" if "Facility" in key else "Code" if "Code" in key else "Flag" if "Is" in key else "Other",
+            "isPrimary": True if key in ["BUID", "PP Date", "Sales Order Id", "Fulfillment Id", "System Qty", "Ship By Date", "LOB", "Ship From Facility", "Ship To Facility"] else False,
+            "sortBy": "ascending",
+            "value": key
+        } for key in unique_keys
+    ]
+
+    data_rows = [{"columns": [{"value": row.get(col["value"], "")} for col in columns]} for row in data]
+
+    return {
+        "columns": columns,
+        "data": data_rows,
+        "logs": {
+            "urls": [],
+            "time": []
+        }
+    }
 
 def getbySalesOrderID(salesorderid, format_type, region, filters=None):
     if filters:
@@ -165,7 +183,6 @@ def getbySalesOrderID(salesorderid, format_type, region, filters=None):
         return table_grid_output
     else:
         return {"error": "Invalid format type"}
-
 
 if __name__ == "__main__":
     output = getbySalesOrderID(
