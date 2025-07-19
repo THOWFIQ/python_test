@@ -93,6 +93,9 @@ def apply_filters(data_list, filters):
     return [item for item in data_list if match(item)]
 
 def tablestructural(data, IsPrimary):
+    if not data:
+        return {"columns": [], "data": []}
+
     return {
         "columns": [
             {"value": k, "checked": True, "group": "General", "sortBy": "ascending", "isPrimary": True} for k in data[0].keys()
