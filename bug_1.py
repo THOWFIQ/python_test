@@ -26,6 +26,22 @@ def post_api(URL, query, variables=None):
     response = httpx.post(URL, json={"query": query, "variables": variables} if variables else {"query": query}, verify=False)
     return response.json()
 
+def flatten_dict(d, parent_key='', sep='.'):
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        elif isinstance(v, list):
+            if all(isinstance(i, dict) for i in v):
+                for i, elem in enumerate(v):
+                    items.extend(flatten_dict(elem, f"{new_key}[{i}]", sep=sep).items())
+            else:
+                items.append((new_key, v))
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
 def get_by_combination(filters: dict, region: str, format_type: str = "export"):
     data = []
 
@@ -75,63 +91,18 @@ def get_by_combination(filters: dict, region: str, format_type: str = "export"):
         except Exception as e:
             print("Invalid order_date range format:", e)
 
-    def match_optional_fields(entry):
-        for key, expected in filters.items():
-            if key == "ISMULTIPACK":
-                if not any(line.get("ismultipack") == expected for line in entry.get("woLines", [])):
-                    return False
-            elif key == "BUID" and entry.get("buid") != expected:
-                return False
-            elif key == "Facility":
-                facilities = (entry.get("shipFromFacility"), entry.get("shipToFacility"))
-                if expected not in facilities:
-                    return False
-            elif key == "Order create_date":
-                if entry.get("createDate") != expected:
-                    return False
-            elif key == "Sales_order_ref":
-                if entry.get("soHeaderRef") != expected:
-                    return False
-            elif key == "FullfillmentID":
-                if entry.get("fulfillmentId") != expected:
-                    return False
-            elif key == "WorkOrderID":
-                if entry.get("woId") != expected:
-                    return False
-        return True
-
     flat_data = []
-    for item in data:
-        if isinstance(item, dict):
-            for key, val in item.items():
-                if isinstance(val, list):
-                    for rec in val:
-                        if match_optional_fields(rec):
-                            flat_data.append(flatten_dict(rec))
-                elif isinstance(val, dict):
-                    if match_optional_fields(val):
-                        flat_data.append(flatten_dict(val))
+    for record in data:
+        flat_data.append(flatten_dict(record))
 
     flat_data = [{k: ("" if v is None else v) for k, v in row.items()} for row in flat_data]
     if format_type == "export":
-        print(json.dumps(flat_data, indent=2))
         return json.dumps(flat_data, indent=2)
     elif format_type == "grid":
         table_grid_output = tablestructural(data=flat_data, IsPrimary=region)
-        print(json.dumps(table_grid_output, indent=2))
         return table_grid_output
     else:
         return {"error": "Invalid format type"}
-
-def flatten_dict(d, parent_key='', sep='.'):
-    items = []
-    for k, v in d.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
-        else:
-            items.append((new_key, v))
-    return dict(items)
 
 def apply_filters(data_list, filters):
     if not filters:
@@ -147,7 +118,7 @@ def apply_filters(data_list, filters):
     return [item for item in data_list if match(item)]
 
 def getbySalesOrderIDs(salesorderid, format_type):
-    from .data_collector import collect_data  # Your actual collector method
+    from .data_collector import collect_data
     return collect_data(salesorderid, format_type)
 
 def tablestructural(data, IsPrimary):
@@ -194,11 +165,9 @@ def getbySalesOrderID(salesorderid, format_type, region, filters=None):
     total_output = apply_filters(total_output, filters)
 
     if format_type == "export":
-        print(json.dumps(total_output, indent=2))
         return json.dumps(total_output, indent=2)
     elif format_type == "grid":
         table_grid_output = tablestructural(data=total_output, IsPrimary=region)
-        print(json.dumps(table_grid_output, indent=2))
         return table_grid_output
     else:
         return {"error": "Invalid format type"}
