@@ -4,28 +4,28 @@ import json
 import httpx
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Add path to import GraphQL queries (assume graphqlQueries.py is in the same folder)
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from graphqlQueries import *
 
-# Load config file
-configABSpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
-with open(configABSpath, 'r') as file:
-    configPath = json.load(file)
+# Load config
+config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
+with open(config_path, 'r') as file:
+    config = json.load(file)
 
-FID     = configPath['Linkage_DAO']
-FOID    = configPath['FM_Order_DAO']
-SOPATH  = configPath['SO_Header_DAO']
-WOID    = configPath['WO_Details_DAO']
-FFBOM   = configPath['FM_BOM_DAO']
+FID = config['Linkage_DAO']
+FOID = config['FM_Order_DAO']
+SOPATH = config['SO_Header_DAO']
+WOID = config['WO_Details_DAO']
+FFBOM = config['FM_BOM_DAO']
 
-def post_api(URL, query, variables):
-    response = httpx.post(URL, json={"query": query, "variables": variables} if variables else {"query": query}, verify=False)
+
+def post_api(url, query, variables=None):
+    response = httpx.post(url, json={"query": query, "variables": variables} if variables else {"query": query}, verify=False)
     return response.json()
 
+
 def fetch_combination_data(filters):
-    combined_data = {'data': {}}
-    
+    combined_data = {"data": {}}
     so_id = filters.get("Sales_Order_id")
     foid = filters.get("foid")
     fulfillment_id = filters.get("Fullfillment_Id")
@@ -34,23 +34,20 @@ def fetch_combination_data(filters):
     if not so_id:
         return {"error": "Sales_Order_id is required"}
 
-    # SO Header Data
-    variables = {"salesorderIds": [so_id]}
-    soaorder_query = fetch_soaorder_query()
-    soaorder = post_api(URL=SOPATH, query=soaorder_query, variables=variables)
-    if soaorder and soaorder.get('data'):
-        combined_data['data']['getSoheaderBySoids'] = soaorder['data']['getSoheaderBySoids']
+    # Sales order header
+    so_header_query = fetch_soaorder_query()
+    so_header = post_api(SOPATH, so_header_query, {"salesorderIds": [so_id]})
+    if so_header and so_header.get("data"):
+        combined_data["data"]["getSoheaderBySoids"] = so_header["data"]["getSoheaderBySoids"]
 
-    # Sales Order
-    salesorder_query = fetch_salesorder_query(so_id)
-    salesorder = post_api(URL=FID, query=salesorder_query, variables=None)
-    if salesorder and salesorder.get('data'):
-        combined_data['data']['getBySalesorderids'] = salesorder['data']['getBySalesorderids']
+    # Sales order linkage
+    so_link_query = fetch_salesorder_query(so_id)
+    so_link = post_api(FID, so_link_query)
+    if so_link and so_link.get("data"):
+        combined_data["data"]["getBySalesorderids"] = so_link["data"]["getBySalesorderids"]
 
     result = combined_data['data']['getBySalesorderids']['result'][0]
     soheader = combined_data['data']['getSoheaderBySoids'][0]
-
-    # Optional fetches
     fulfillment = {}
     getFulfillmentsByso = {}
     forderline = {}
@@ -60,33 +57,33 @@ def fetch_combination_data(filters):
 
     if fulfillment_id:
         fulfillment_query = fetch_fulfillment_query()
-        fulfillments = post_api(URL=SOPATH, query=fulfillment_query, variables={"fulfillment_id": fulfillment_id})
+        fulfillments = post_api(SOPATH, fulfillment_query, {"fulfillment_id": fulfillment_id})
         if fulfillments.get("data"):
             fulfillment = fulfillments["data"]["getFulfillmentsById"][0]["fulfillments"][0]
+            combined_data['data']['getFulfillmentsById'] = fulfillments['data']['getFulfillmentsById']
 
-        sofulfillments_query = fetch_getFulfillmentsBysofulfillmentid_query(fulfillment_id)
-        sofulfillments = post_api(URL=SOPATH, query=sofulfillments_query, variables=None)
+        getFulfillmentsByso_query = fetch_getFulfillmentsBysofulfillmentid_query(fulfillment_id)
+        sofulfillments = post_api(SOPATH, getFulfillmentsByso_query)
         if sofulfillments.get("data"):
             getFulfillmentsByso = sofulfillments["data"]["getFulfillmentsBysofulfillmentid"][0]
             sourceSystemId = getFulfillmentsByso.get("sourceSystemId", "")
 
-        fulfillment_headers_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(fulfillment_id)
-        fulfillment_headers = post_api(URL=FOID, query=fulfillment_headers_query, variables=None)
+        getAllFulfillmentHeaders_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(fulfillment_id)
+        fulfillment_headers = post_api(FOID, getAllFulfillmentHeaders_query)
         if fulfillment_headers.get("data"):
             isDirectShip = fulfillment_headers['data']['getAllFulfillmentHeadersSoidFulfillmentid'][0]['isDirectShip']
 
-        fbom_query = fetch_getFbomBySoFulfillmentid_query(fulfillment_id)
-        fbom = post_api(URL=FFBOM, query=fbom_query, variables=None)
+        getFbom_query = fetch_getFbomBySoFulfillmentid_query(fulfillment_id)
+        fbom = post_api(FFBOM, getFbom_query)
         if fbom.get("data"):
             ssc = fbom["data"]["getFbomBySoFulfillmentid"][0]["ssc"]
 
     if foid:
         foid_query = fetch_foid_query(foid)
-        foid_output = post_api(URL=FOID, query=foid_query, variables=None)
+        foid_output = post_api(FOID, foid_query)
         if foid_output.get("data"):
             forderline = foid_output["data"]["getAllFulfillmentHeadersByFoId"][0]["forderline"][0]
 
-    # Construct the base row
     return {
         "BUID": soheader.get("buid"),
         "PP Date": soheader.get("ppDate"),
@@ -128,6 +125,7 @@ def fetch_combination_data(filters):
         "Manifest ID": filters.get("Manifest_ID")
     }
 
+
 def fetch_multiple_combination_data(filters_list):
     results = []
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -139,64 +137,44 @@ def fetch_multiple_combination_data(filters_list):
                 results.append({"error": str(e)})
     return results
 
-def flatten_table(data_rows):
+
+def tablestructural(data, IsPrimary):
     column_meta = {
-        "BUID": ("ID", True),
-        "PP Date": ("Date", True),
-        "Sales Order Id": ("ID", True),
-        "Fulfillment Id": ("ID", True),
-        "Region Code": ("Code", False),
-        "FoId": ("ID", False),
-        "System Qty": ("Other", True),
-        "Ship By Date": ("Date", True),
-        "LOB": ("Other", True),
-        "Ship From Facility": ("Facility", True),
-        "Ship To Facility": ("Facility", True),
-        "Tax Regstrn Num": ("Other", False),
-        "Address Line1": ("Address", False),
-        "Postal Code": ("Address", False),
-        "State Code": ("Code", False),
-        "City Code": ("Address", False),
-        "Customer Num": ("Other", False),
-        "Customer Name Ext": ("Other", False),
-        "Country": ("Address", True),
-        "Create Date": ("Date", False),
-        "Ship Code": ("Code", False),
-        "Must Arrive By Date": ("Date", False),
-        "Update Date": ("Date", False),
-        "Merge Type": ("Type", False),
-        "Manifest Date": ("Date", False),
-        "Revised Delivery Date": ("Date", False),
-        "Delivery City": ("Address", False),
-        "Source System Id": ("ID", False),
-        "IsDirect Ship": ("Flag", False),
-        "SSC": ("Other", False),
-        "OIC Id": ("ID", False),
-        "Order Date": ("Date", True),
-        "Work Order Id": ("ID", True),
-        "Sales Order Ref": ("ID", True),
-        "Order Create Date": ("Date", True),
-        "Ismultipack": ("Flag", False),
-        "Facility": ("Facility", False),
-        "Manifest ID": ("ID", True)
+        "BUID": ("ID", True), "PP Date": ("Date", True), "Sales Order Id": ("ID", True),
+        "Fulfillment Id": ("ID", True), "Region Code": ("Code", False), "FoId": ("ID", False),
+        "System Qty": ("Other", True), "Ship By Date": ("Date", True), "LOB": ("Other", True),
+        "Ship From Facility": ("Facility", True), "Ship To Facility": ("Facility", True),
+        "Tax Regstrn Num": ("Other", False), "Address Line1": ("Address", False),
+        "Postal Code": ("Address", False), "State Code": ("Code", False), "City Code": ("Address", False),
+        "Customer Num": ("Other", False), "Customer Name Ext": ("Other", False),
+        "Country": ("Address", True), "Create Date": ("Date", False), "Ship Code": ("Code", False),
+        "Must Arrive By Date": ("Date", False), "Update Date": ("Date", False),
+        "Merge Type": ("Type", False), "Manifest Date": ("Date", False),
+        "Revised Delivery Date": ("Date", False), "Delivery City": ("Address", False),
+        "Source System Id": ("ID", False), "IsDirect Ship": ("Flag", False), "SSC": ("Other", False),
+        "OIC Id": ("ID", False), "Order Date": ("Date", True), "Work Order Id": ("ID", True),
+        "Sales Order Ref": ("ID", True), "Order Create Date": ("Date", True),
+        "Ismultipack": ("Flag", False), "Facility": ("Facility", False), "Manifest ID": ("ID", True)
     }
 
-    if not data_rows:
+    if not data:
         return {"columns": [], "data": []}
 
-    columns = [
-        {
+    columns = []
+    for key in data[0].keys():
+        group, is_primary = column_meta.get(key, ("Other", False))
+        columns.append({
             "value": key,
             "sortBy": "ascending",
-            "isPrimary": column_meta.get(key, ("Other", False))[1],
-            "group": column_meta.get(key, ("Other", False))[0],
-            "checked": column_meta.get(key, ("Other", False))[1]
-        }
-        for key in data_rows[0]
-    ]
+            "isPrimary": is_primary,
+            "group": group,
+            "checked": is_primary
+        })
 
-    return {"columns": columns, "data": data_rows}
+    return {"columns": columns, "data": data}
 
+
+# Entry point
 if __name__ == "__main__":
     sample_filters = [
         {
@@ -212,6 +190,20 @@ if __name__ == "__main__":
         }
     ]
 
-    output = fetch_multiple_combination_data(sample_filters)
-    flat_table = flatten_table(output)
-    print(json.dumps(flat_table, indent=2))
+    format_type = "grid"  # or "export"
+    region = "APJ"
+
+    total_output = fetch_multiple_combination_data(sample_filters)
+
+    # Format response
+    if format_type == "export":
+        print(json.dumps(total_output, indent=2))
+        result = json.dumps(total_output)
+    elif format_type == "grid":
+        table_grid_output = tablestructural(data=total_output, IsPrimary=region)
+        print(json.dumps(table_grid_output, indent=2))
+        result = json.dumps(table_grid_output)
+    else:
+        result = {"error": "Format type is not part of grid/export"}
+
+    # Optional return or further processing
