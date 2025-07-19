@@ -6,6 +6,7 @@ import os
 import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from graphqlQueries import *
 
@@ -15,101 +16,118 @@ with open(configABSpath, 'r') as file:
     configPath = json.load(file)
 
 # API Paths
-FID     = configPath['Linkage_DAO']
-FOID    = configPath['FM_Order_DAO']
-SOPATH  = configPath['SO_Header_DAO']
-WOID    = configPath['WO_Details_DAO']
-FFBOM   = configPath['FM_BOM_DAO']
+FID = configPath['Linkage_DAO']
+FOID = configPath['FM_Order_DAO']
+SOPATH = configPath['SO_Header_DAO']
+WOID = configPath['WO_Details_DAO']
+FFBOM = configPath['FM_BOM_DAO']
 
-
-def post_api(URL, query, variables):
-    if variables:
-        response = httpx.post(URL, json={"query": query, "variables": variables}, verify=False)
-    else:
-        response = httpx.post(URL, json={"query": query}, verify=False)
+def post_api(URL, query, variables=None):
+    response = httpx.post(URL, json={"query": query, "variables": variables} if variables else {"query": query}, verify=False)
     return response.json()
 
+def get_by_combination(filters: dict, region: str, format_type: str = "export"):
+    data = []
 
-def fetch_and_clean(salesorderIds):
-    combined_data = {'data': {}}
-    soi = {"salesorderIds": [salesorderIds]}
+    if sales_order_id := filters.get("Sales_Order_id"):
+        query = fetch_salesorder_query(sales_order_id)
+        response = post_api(SOPATH, query)
+        if response and response.get("data"):
+            data.append(response["data"])
 
-    soaorder = post_api(SOPATH, fetch_soaorder_query(), soi)
-    if soaorder and soaorder.get('data'):
-        combined_data['data']['getSoheaderBySoids'] = soaorder['data']['getSoheaderBySoids']
+    if wo_id := filters.get("wo_id"):
+        query = fetch_workOrderId_query(wo_id)
+        response = post_api(WOID, query)
+        if response and response.get("data"):
+            data.append(response["data"])
 
-    salesorder = post_api(FID, fetch_salesorder_query(salesorderIds), None)
-    if salesorder and salesorder.get('data'):
-        combined_data['data']['getBySalesorderids'] = salesorder['data']['getBySalesorderids']
+    if fulfillment_id := filters.get("Fullfillment Id"):
+        query = fetch_fulfillment_query()
+        response = post_api(SOPATH, query, {"fulfillment_id": fulfillment_id})
+        if response and response.get("data"):
+            data.append(response["data"])
 
-    result_list = salesorder.get("data", {}).get("getBySalesorderids", {}).get("result", [])
-    if not result_list:
-        return None
+    if foid := filters.get("foid"):
+        query = fetch_foid_query(foid)
+        response = post_api(FOID, query)
+        if response and response.get("data"):
+            data.append(response["data"])
 
-    work_orders = result_list[0]["workOrders"]
-    for i in work_orders:
-        woId = i["woId"]
-        getWorkOrderById = post_api(WOID, fetch_workOrderId_query(woId), None)
-        getByWorkorderids = post_api(FID, fetch_getByWorkorderids_query(woId), None)
+    if manifest_id := filters.get("Manifest ID"):
+        query = fetch_getAsn_query(manifest_id)
+        response = post_api(FID, query)
+        if response and response.get("data"):
+            data.append(response["data"])
 
-        sn_numbers = []
-        if getByWorkorderids and getByWorkorderids.get('data'):
-            sn_numbers = [
-                sn.get("snNumber") 
-                for sn in getByWorkorderids["data"]["getByWorkorderids"]["result"][0]["asnNumbers"]
-                if sn.get("snNumber") is not None
-            ]
+    if sn_number := filters.get("SN Number"):
+        query = fetch_getAsnbySn_query(sn_number)
+        response = post_api(FID, query)
+        if response and response.get("data"):
+            data.append(response["data"])
 
-        if getWorkOrderById and getWorkOrderById.get('data'):
-            wo_detail = getWorkOrderById["data"]["getWorkOrderById"][0]
-            flattened_wo = {
-                "Vendor Work Order Num": wo_detail["woId"],
-                "Channel Status Code": wo_detail["channelStatusCode"],
-                "Ismultipack": wo_detail["woLines"][0].get("ismultipack"),
-                "Ship Mode": wo_detail["shipMode"],
-                "Is Otm Enabled": wo_detail["isOtmEnabled"],
-                "SN Number": sn_numbers
-            }
-            for i, wo in enumerate(work_orders):
-                if wo.get("woId") == wo_detail["woId"]:
-                    work_orders[i] = flattened_wo.copy()
+    if order_date := filters.get("order_date"):
+        try:
+            from_date, to_date = order_date.split(" to ")
+            query = fetch_getOrderDate_query(from_date.strip(), to_date.strip())
+            response = post_api(SOPATH, query)
+            if response and response.get("data"):
+                data.append(response["data"])
+        except Exception as e:
+            print("Invalid order_date range format:", e)
 
-    fulfillment_id = None
-    fulfillment_raw = result_list[0].get("fulfillment")
-    if isinstance(fulfillment_raw, dict):
-        fulfillment_id = fulfillment_raw.get("fulfillmentId")
-    elif isinstance(fulfillment_raw, list) and fulfillment_raw:
-        fulfillment_id = fulfillment_raw[0].get("fulfillmentId")
+    def match_optional_fields(entry):
+        for key, expected in filters.items():
+            if key == "ISMULTIPACK":
+                if not any(line.get("ismultipack") == expected for line in entry.get("woLines", [])):
+                    return False
+            elif key == "BUID" and entry.get("buid") != expected:
+                return False
+            elif key == "Facility":
+                facilities = (entry.get("shipFromFacility"), entry.get("shipToFacility"))
+                if expected not in facilities:
+                    return False
+            elif key == "Order create_date":
+                if entry.get("createDate") != expected:
+                    return False
+            elif key == "Sales_order_ref":
+                if entry.get("soHeaderRef") != expected:
+                    return False
+            elif key == "FullfillmentID":
+                if entry.get("fulfillmentId") != expected:
+                    return False
+            elif key == "WorkOrderID":
+                if entry.get("woId") != expected:
+                    return False
+        return True
 
-    if fulfillment_id:
-        fulfillment_data = post_api(SOPATH, fetch_fulfillment_query(), {"fulfillment_id": fulfillment_id})
-        if fulfillment_data and fulfillment_data.get('data'):
-            combined_data['data']['getFulfillmentsById'] = fulfillment_data['data']['getFulfillmentsById']
+    flat_data = []
+    for item in data:
+        if isinstance(item, dict):
+            for key, val in item.items():
+                if isinstance(val, list):
+                    for rec in val:
+                        if match_optional_fields(rec):
+                            flat_data.append(rec)
+                elif isinstance(val, dict):
+                    if match_optional_fields(val):
+                        flat_data.append(val)
 
-        combined_data['data']['getFulfillmentsBysofulfillmentid'] = post_api(
-            SOPATH, fetch_getFulfillmentsBysofulfillmentid_query(fulfillment_id), None
-        )['data']['getFulfillmentsBysofulfillmentid']
+    return flat_data
 
-        combined_data['data']['getAllFulfillmentHeadersSoidFulfillmentid'] = post_api(
-            FOID, fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(fulfillment_id), None
-        )['data']['getAllFulfillmentHeadersSoidFulfillmentid']
+def apply_filters(data_list, filters):
+    if not filters:
+        return data_list
 
-        combined_data['data']['getFbomBySoFulfillmentid'] = post_api(
-            FFBOM, fetch_getFbomBySoFulfillmentid_query(fulfillment_id), None
-        )['data']['getFbomBySoFulfillmentid']
+    def match(record):
+        for key, value in filters.items():
+            values = [v.strip() for v in value.split(',')]
+            if str(record.get(key, '')).strip() not in values:
+                return False
+        return True
 
-    fulfillment_orders = result_list[0].get("fulfillmentOrders", [])
-    if fulfillment_orders and fulfillment_orders[0].get("foId"):
-        fo_id = fulfillment_orders[0]["foId"]
-        foid_output = post_api(FOID, fetch_foid_query(fo_id), None)
-        if foid_output and foid_output.get('data'):
-            combined_data['data']['getAllFulfillmentHeadersByFoId'] = foid_output['data']['getAllFulfillmentHeadersByFoId']
-
-    return combined_data
-
+    return [item for item in data_list if match(item)]
 
 def getbySalesOrderIDs(salesorderid, format_type):
-    data_row_export = {}
     combined_data = fetch_and_clean(salesorderid)
     if not combined_data:
         return []
@@ -171,24 +189,11 @@ def getbySalesOrderIDs(salesorderid, format_type):
 
     return flat_list
 
-
-def apply_filters(data_list, filters):
-    if not filters:
-        return data_list
-
-    def match(record):
-        for key, value in filters.items():
-            values = [v.strip() for v in value.split(',')]
-            if str(record.get(key, '')).strip() not in values:
-                return False
-        return True
-
-    return [item for item in data_list if match(item)]
-
-
 def getbySalesOrderID(salesorderid, format_type, region, filters=None):
-    total_output = []
+    if filters:
+        return get_by_combination(filters, region, format_type)
 
+    total_output = []
     def fetch_order(so_id):
         try:
             return getbySalesOrderIDs(salesorderid=so_id, format_type=format_type)
@@ -202,19 +207,17 @@ def getbySalesOrderID(salesorderid, format_type, region, filters=None):
             total_output.extend(future.result())
 
     total_output = [{k: ("" if v is None else v) for k, v in row.items()} for row in total_output]
-    # print(f"Total Output :{total_output}")
-    # total_output = apply_filters(total_output, filters)
+    total_output = apply_filters(total_output, filters)
 
     if format_type == "export":
         print(json.dumps(total_output, indent=2))
         return json.dumps(total_output, indent=2)
     elif format_type == "grid":
-        table_grid_output = tablestructural(data=total_output,IsPrimary=region)
+        table_grid_output = tablestructural(data=total_output, IsPrimary=region)
         print(json.dumps(table_grid_output, indent=2))
-        return tablestructural(data=table_grid_output, IsPrimary=region)
+        return table_grid_output
     else:
         return {"error": "Invalid format type"}
-
 
 if __name__ == "__main__":
     output = getbySalesOrderID(
@@ -226,4 +229,3 @@ if __name__ == "__main__":
             "WorkOrderID": "7360928459"
         }
     )
-    # print(output)
