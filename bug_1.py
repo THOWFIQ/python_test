@@ -1,4 +1,3 @@
-from flask import Flask, request, jsonify
 import requests
 import httpx
 import json
@@ -23,14 +22,9 @@ SOPATH = configPath['SO_Header_DAO']
 WOID = configPath['WO_Details_DAO']
 FFBOM = configPath['FM_BOM_DAO']
 
-# Initialize Flask App
-app = Flask(__name__)
-
-
 def post_api(URL, query, variables=None):
     response = httpx.post(URL, json={"query": query, "variables": variables} if variables else {"query": query}, verify=False)
     return response.json()
-
 
 def get_by_combination(filters: dict, region: str, format_type: str = "export"):
     data = []
@@ -120,7 +114,6 @@ def get_by_combination(filters: dict, region: str, format_type: str = "export"):
 
     return flat_data
 
-
 def apply_filters(data_list, filters):
     if not filters:
         return data_list
@@ -133,7 +126,6 @@ def apply_filters(data_list, filters):
         return True
 
     return [item for item in data_list if match(item)]
-
 
 def getbySalesOrderIDs(salesorderid, format_type):
     combined_data = fetch_and_clean(salesorderid)
@@ -197,9 +189,15 @@ def getbySalesOrderIDs(salesorderid, format_type):
 
     return flat_list
 
-
 def getbySalesOrderID(salesorderid, format_type, region, filters=None):
-    if filters and not salesorderid:
+    filters = filters or {}
+
+    # 👇 If Sales_Order_id is in filters, extract it
+    if not salesorderid and "Sales_Order_id" in filters:
+        value = filters.pop("Sales_Order_id")
+        salesorderid = [s.strip() for s in value.split(",")]
+
+    if not salesorderid:
         return get_by_combination(filters, region, format_type)
 
     total_output = []
@@ -222,36 +220,26 @@ def getbySalesOrderID(salesorderid, format_type, region, filters=None):
     if format_type == "export":
         return total_output
     elif format_type == "grid":
-        return total_output  # you may format as table structure
+        return total_output
     else:
         return {"error": "Invalid format type"}
 
-
-@app.route("/get-order-data", methods=["POST"])
-def handle_order_request():
-    try:
-        payload = request.get_json()
-
-        format_type = payload.get("format_type", "export")
-        region = payload.get("region", "EMEA")
-        filters = payload.get("filters", {})
-        salesorderid = payload.get("salesorderid", [])
-
-        result = getbySalesOrderID(
-            salesorderid=salesorderid,
-            format_type=format_type,
-            region=region,
-            filters=filters
-        )
-
-        return jsonify(result)
-
-    except Exception as e:
-        return jsonify({
-            "error": str(e),
-            "trace": traceback.format_exc()
-        }), 500
-
-
+# ✅ DIRECT RUN
 if __name__ == "__main__":
-    app.run(debug=True)
+    format_type = "grid"
+    region = "EMEA"
+    salesorderid = []  # Leave empty
+    filters = {
+        "Sales_Order_id": "1004452326",
+        "FullfillmentID": "262135",
+        "WorkOrderID": "7360928459"
+    }
+
+    output = getbySalesOrderID(
+        salesorderid=salesorderid,
+        format_type=format_type,
+        region=region,
+        filters=filters
+    )
+
+    print(json.dumps(output, indent=2))
