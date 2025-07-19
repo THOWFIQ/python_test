@@ -6,7 +6,6 @@ import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Setup path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from graphqlQueries import *
 
@@ -25,6 +24,32 @@ FFBOM = configPath['FM_BOM_DAO']
 def post_api(URL, query, variables=None):
     response = httpx.post(URL, json={"query": query, "variables": variables} if variables else {"query": query}, verify=False)
     return response.json()
+
+def fetch_and_clean(salesorderid):
+    try:
+        queries = {
+            "getSoheaderBySoids": (SOPATH, fetch_soheader_by_soid(salesorderid)),
+            "getBySalesorderids": (FOID, fetch_by_salesorderids(salesorderid)),
+            "getFulfillmentsById": (FOID, fetch_fulfillment_by_soid(salesorderid)),
+            "getAllFulfillmentHeadersByFoId": (FOID, fetch_all_fulfillment_header_foid(salesorderid)),
+            "getFulfillmentsBysofulfillmentid": (FID, fetch_fulfillment_by_so_fulfillment_id(salesorderid)),
+            "getAllFulfillmentHeadersSoidFulfillmentid": (FOID, fetch_header_soid_fulfillmentid(salesorderid)),
+            "getFbomBySoFulfillmentid": (FFBOM, fetch_bom_by_so_fulfillment_id(salesorderid))
+        }
+
+        combined_result = {"data": {}}
+        for key, (url, query) in queries.items():
+            response = post_api(url, query)
+            if response and "data" in response:
+                combined_result["data"][key] = response["data"].get(key, list(response["data"].values())[0])
+            else:
+                combined_result["data"][key] = {}
+
+        return combined_result
+    except Exception as e:
+        print("Error in fetch_and_clean:", e)
+        traceback.print_exc()
+        return None
 
 def get_by_combination(filters: dict, region: str, format_type: str = "export"):
     data = []
@@ -192,7 +217,6 @@ def getbySalesOrderIDs(salesorderid, format_type):
 def getbySalesOrderID(salesorderid, format_type, region, filters=None):
     filters = filters or {}
 
-    # 👇 If Sales_Order_id is in filters, extract it
     if not salesorderid and "Sales_Order_id" in filters:
         value = filters.pop("Sales_Order_id")
         salesorderid = [s.strip() for s in value.split(",")]
@@ -224,11 +248,10 @@ def getbySalesOrderID(salesorderid, format_type, region, filters=None):
     else:
         return {"error": "Invalid format type"}
 
-# ✅ DIRECT RUN
 if __name__ == "__main__":
     format_type = "grid"
     region = "EMEA"
-    salesorderid = []  # Leave empty
+    salesorderid = []
     filters = {
         "Sales_Order_id": "1004452326",
         "FullfillmentID": "262135",
