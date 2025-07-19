@@ -21,7 +21,6 @@ SOPATH  = configPath['SO_Header_DAO']
 WOID    = configPath['WO_Details_DAO']
 FFBOM   = configPath['FM_BOM_DAO']
 
-# Define field categories
 PRIMARY_FIELDS = {
     "Sales_Order_id",
     "wo_id",
@@ -36,7 +35,6 @@ SECONDARY_FIELDS = {
     "Facility"
 }
 
-# Common POST call
 def post_api(URL, query, variables):
     try:
         if variables:
@@ -48,7 +46,6 @@ def post_api(URL, query, variables):
         print(f"Exception in post_api: {e}")
         return {"error": str(e)}
 
-# Reusable threaded fetcher
 def threaded_fetch(query_func, var_key, values_list, url):
     query = query_func()
     results = []
@@ -68,52 +65,8 @@ def threaded_fetch(query_func, var_key, values_list, url):
                 print(f"Error for {var_key} = {val}: {e}")
     return results
 
-# Full logic
-def fileldValidation(filters, format_type, region):
-    primary_in_filters = []
-    secondary_in_filters = []
-
-    # Step 2: Categorize fields
-    for field in filters:
-        if field in PRIMARY_FIELDS:
-            primary_in_filters.append(field)
-        elif field in SECONDARY_FIELDS:
-            secondary_in_filters.append(field)
-
-    # Step 3: Validation
-    if not primary_in_filters:
-        return {
-            "status": "error",
-            "message": "At least one primary field is required in filters."
-        }
-
-    primary_filters = {key: filters[key] for key in primary_in_filters}
-    secondary_filters = {key: filters[key] for key in secondary_in_filters}
-
-    result_map = {}
-
-    # Step 4: Threaded API calls for each supported field
-    if 'Sales_Order_id' in primary_filters:
-        so_ids = list(set(x.strip() for x in primary_filters['Sales_Order_id'].split(',') if x.strip()))
-        result_map['Sales_Order_id'] = threaded_fetch(fetch_salesorder_query, "salesorderIds", so_ids, SOPATH)
-
-    if 'foid' in primary_filters:
-        foids = list(set(x.strip() for x in primary_filters['foid'].split(',') if x.strip()))
-        result_map['foid'] = threaded_fetch(fetch_foid_query, "foids", foids, FOID)
-
-    if 'wo_id' in primary_filters:
-        woids = list(set(x.strip() for x in primary_filters['wo_id'].split(',') if x.strip()))
-        result_map['wo_id'] = threaded_fetch(fetch_workOrderId_query, "woIds", woids, WOID)
-        here i need to call 
-        fetch_workOrderId_query
-        fetch_getByWorkorderids_query
-
-    if 'Fullfillment Id' in primary_filters:
-        ffs = list(set(x.strip() for x in primary_filters['Fullfillment Id'].split(',') if x.strip()))
-
-        ( here i need to call 
-        
-        combined_data = {'data': {}}
+def combined_fulfillment_fetch(fulfillment_id):
+    combined_data = {'data': {}}
     variables = {"fulfillment_id": fulfillment_id}
 
     fulfillment_query = fetch_fulfillment_query()
@@ -137,17 +90,55 @@ def fileldValidation(filters, format_type, region):
         combined_data['data']['getFbomBySoFulfillmentid'] = fbom_data['data']['getFbomBySoFulfillmentid']
 
     return combined_data
-    
-    )
-        result_map['Fullfillment Id'] = threaded_fetch(fetch_fm_bom_query, "ffIds", ffs, FFBOM)
 
-    # if 'order_date' in primary_filters:
-    #     dates = list(set(x.strip() for x in primary_filters['order_date'].split(',') if x.strip()))
-    #     result_map['order_date'] = threaded_fetch(fetch_getOrderDate_query, "orderDates", dates, SOPATH)
+def fileldValidation(filters, format_type, region):
+    primary_in_filters = []
+    secondary_in_filters = []
 
-    # Debug: Print all results
+    for field in filters:
+        if field in PRIMARY_FIELDS:
+            primary_in_filters.append(field)
+        elif field in SECONDARY_FIELDS:
+            secondary_in_filters.append(field)
+
+    if not primary_in_filters:
+        return {
+            "status": "error",
+            "message": "At least one primary field is required in filters."
+        }
+
+    primary_filters = {key: filters[key] for key in primary_in_filters}
+    secondary_filters = {key: filters[key] for key in secondary_in_filters}
+    result_map = {}
+
+    if 'Sales_Order_id' in primary_filters:
+        so_ids = list(set(x.strip() for x in primary_filters['Sales_Order_id'].split(',') if x.strip()))
+        result_map['Sales_Order_id'] = threaded_fetch(fetch_salesorder_query, "salesorderIds", so_ids, SOPATH)
+
+    if 'foid' in primary_filters:
+        foids = list(set(x.strip() for x in primary_filters['foid'].split(',') if x.strip()))
+        result_map['foid'] = threaded_fetch(fetch_foid_query, "foids", foids, FOID)
+
+    if 'wo_id' in primary_filters:
+        woids = list(set(x.strip() for x in primary_filters['wo_id'].split(',') if x.strip()))
+        result_map['wo_id'] = threaded_fetch(fetch_workOrderId_query, "woIds", woids, WOID)
+        result_map['wo_id_extra'] = threaded_fetch(fetch_getByWorkorderids_query, "woIds", woids, WOID)
+
+    if 'Fullfillment Id' in primary_filters:
+        ff_ids = list(set(x.strip() for x in primary_filters['Fullfillment Id'].split(',') if x.strip()))
+        fullfillment_results = []
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(combined_fulfillment_fetch, fid) for fid in ff_ids]
+            for future in as_completed(futures):
+                try:
+                    fullfillment_results.append(future.result())
+                except Exception as e:
+                    print(f"Error in Fullfillment Id fetch: {e}")
+        result_map['Fullfillment Id'] = fullfillment_results
+
+    # Debug log
     for key, res in result_map.items():
-        print(f"\nThreaded results for {key}:")
+        print(f"\nResults for {key}:")
         for r in res:
             print(json.dumps(r, indent=2))
 
@@ -157,15 +148,14 @@ def fileldValidation(filters, format_type, region):
         "result_summary": {key: f"{len(val)} response(s)" for key, val in result_map.items()}
     }
 
-# Runner
 if __name__ == "__main__":
     region = "EMEA"
     format_type = 'grid'
     filters = {
-        "Sales_Order_id": "1004543337,1004543337,1004543337,1004543337",
-        "foid": "FO999999,1004543337,1004543337,1004543337,1004543337",
-        "Fullfillment Id": "262135,262135,262135,262135,262135,262135",
-        "wo_id": "7360928459,7360928459,7360928459,7360928459,7360928459",
+        "Sales_Order_id": "1004543337,1004543337",
+        "foid": "FO999999,1004543337",
+        "Fullfillment Id": "262135,262136",
+        "wo_id": "7360928459,7360928460",
         "Sales_order_ref": "REF123456",
         "Order_create_date": "2025-07-15",
         "ISMULTIPACK": "Yes",
