@@ -187,6 +187,28 @@ def fetch_getByFulfillmentids_query(fulfillmentid):
     }}
     """
 
+def fetch_getOrderDate_query(orderFromDate, orderToDate):
+    return f"""
+    query MyQuery {{
+        getOrdersByDate(fromDate: "{orderFromDate}", toDate: "{orderToDate}") {{
+            result {{
+                fulfillmentId
+                oicId
+                mustArriveByDate
+                salesOrderId
+                deliveryCity
+                manifestDate
+                shipByDate
+                shipCode
+                updateDate
+                soHeaderRef
+                systemQty
+            }}
+        }}
+    }}
+    """
+
+
 def tablestructural(data,IsPrimary):
     table_structure = {
         "columns": [            
