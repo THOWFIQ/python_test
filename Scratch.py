@@ -33,13 +33,13 @@ FFBOM   = configPath['FM_BOM_DAO']
 PRIMARY_FIELDS = {
     "Sales_Order_id",
     "wo_id",
-    "Sales_order_ref",
+    #"Sales_order_ref",
     "Fullfillment Id",
     "foid",
-    "order_date",
-    "Order create_date",
-    "Manifest ID"
+    "order_date"
 }
+#"Order create_date",
+#"Manifest ID"
 
 SECONDARY_FIELDS = {
     "ISMULTIPACK",
@@ -60,7 +60,7 @@ def transform_keys(data):
     def convert(key):
         parts = key.split("_")
         return ''.join(part.capitalize() for part in parts)
-    return {convert(k): v for k, v in data.items()}
+    return {convert(k): v for k, v in data.items()}    
 
 def fileldValidation(filters,format_type,region):
     primary_in_filters = []
@@ -79,11 +79,20 @@ def fileldValidation(filters,format_type,region):
             "status": "error",
             "message": "At least one primary field is required in filters."
         }
+    else:
+        # Step 4: Call query using matched primary fields and region
+        primary_filters = {key: filters[key] for key in primary_in_filters}
+        secondary_filters = {key: filters[key] for key in secondary_in_filters}
+        #print(primary_filters)
+        if primary_filters['Sales_Order_id']:
+            soriD = primary_filters['Sales_Order_id']
+            soi = {"salesorderIds": [soriD]}
+            soaorder_query = fetch_soaorder_query()
+            soaorder_result = post_api(URL=SOPATH, query=soaorder_query, variables=soi)
+            print(f"data of sales order data : {soaorder_result}")
+        
 
-    # # Step 4: Call query using matched primary fields and region
-    # primary_filters = {key: filters[key] for key in primary_in_filters}
-    # result = get_data_by_fields(primary_filters, region)
-pass
+        # print(result)
 
 if __name__ == "__main__":
     region = "EMEA"
