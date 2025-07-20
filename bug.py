@@ -12,8 +12,12 @@ def OutputFormat(result_map, format_type=None, secondary_filters=None):
             get_soheaders = so_data.get("getSoheaderBySoids", [])
             get_salesorders = so_data.get("getBySalesorderids", [])
 
-            if not get_soheaders or not get_salesorders:
-                print(f"[WARN] Missing SO headers or sales orders at row {so_index}")
+            if not isinstance(get_soheaders, list) or not get_soheaders:
+                print(f"[WARN] Missing or invalid SO headers at row {so_index}")
+                continue
+
+            if not isinstance(get_salesorders, list) or not get_salesorders:
+                print(f"[WARN] Missing or invalid Sales Orders at row {so_index}")
                 continue
 
             soheader = get_soheaders[0]
@@ -24,6 +28,7 @@ def OutputFormat(result_map, format_type=None, secondary_filters=None):
 
             fulfillment = fulfillment_data.get("getFulfillmentsById", {})
             sofulfillment = fulfillment_data.get("getFulfillmentsBysofulfillmentid", {})
+
             forderline = (fulfillment.get("salesOrderLines") or [{}])[0] if isinstance(fulfillment, dict) else {}
             address = (sofulfillment.get("address") or [{}])[0] if isinstance(sofulfillment, dict) else {}
 
@@ -68,8 +73,8 @@ def OutputFormat(result_map, format_type=None, secondary_filters=None):
             base = {k: v for k, v in data_row_export.items() if k != "wo_ids"}
 
             for wo in wo_data:
-                if isinstance(wo, str):
-                    print(f"[WARN] Skipping invalid wo entry: {wo}")
+                if not isinstance(wo, dict):
+                    print(f"[WARN] Skipping invalid wo entry at row {so_index}: {wo}")
                     continue
 
                 sn_numbers = wo.get("SN Number", [])
@@ -116,18 +121,3 @@ def OutputFormat(result_map, format_type=None, secondary_filters=None):
 
     else:
         return {"error": "Format type is not part of grid/export"}
-
-
-def validate_secondary_filters(row, filters):
-    if not filters:
-        return True
-    for key, expected_val in filters.items():
-        actual_val = str(row.get(key, "")).lower()
-        if actual_val != str(expected_val).lower():
-            return False
-    return True
-               
-[ERROR] formatting row 1: 0
-Traceback (most recent call last):
-  File "C:\Users\Thowfiq_S\Project\fdhdataservice\OrderLookUpFunction\test.py", line 238, in OutputFormat
-    salesorder = get_salesorders[0]
