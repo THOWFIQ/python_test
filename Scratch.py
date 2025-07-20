@@ -71,14 +71,16 @@ def fileldValidation(filters, format_type, region):
                 except Exception as e:
                     print(f"Error in Fullfillment Id fetch: {e}")
         result_map['Fullfillment Id'] = fullfillment_results
-        print(result_map)
-        formattingData = OutputFormat(result_map)
-        
+
+    formattingData = OutputFormat(result_map, format_type=format_type)
+
     return {
         "status": "success",
         "message": "Validation and fetch completed.",
-        "result_summary": {key: f"{len(val)} response(s)" for key, val in result_map.items()}
+        "result_summary": {key: f"{len(val)} response(s)" for key, val in result_map.items()},
+        "data": formattingData
     }
+
 
 def OutputFormat(result_map, format_type=None):
     flat_list = []
@@ -117,7 +119,8 @@ def OutputFormat(result_map, format_type=None):
                 "Sales Order Id": salesorder.get("salesOrderId"),
                 "Fulfillment Id": fulfillment.get("fulfillmentId"),
                 "Region Code": salesorder.get("region"),
-                "FoId": foid_data[0]["data"].get("getAllFulfillmentHeadersByFoId", [{}])[0].get("foId") if foid_data else None,
+                "FoId": (foid_data[0]["data"].get("getAllFulfillmentHeadersByFoId", [{}])[0].get("foId")
+                         if foid_data and foid_data[0].get("data") else None),
                 "System Qty": fulfillment.get("systemQty"),
                 "Ship By Date": fulfillment.get("shipByDate"),
                 "LOB": forderline.get("lob"),
