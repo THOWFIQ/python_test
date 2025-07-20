@@ -55,3 +55,122 @@ def get_templates():
         })
 
     return jsonify(result)
+
+=======================================================================================================================================================
+
+@app.route('/SaveTemplate', methods=['POST'])
+def save_template():
+    data = request.get_json()
+
+    connection = db.get_db_connection(env)
+    if not connection:
+        return jsonify({'error': 'Failed to connect to database'}), 500
+    cursor = connection.cursor()
+
+    try:
+        insert_sql = """
+        INSERT INTO TEMPLATE_DATA (
+            ID, REGION, FORMAT_TYPE, USERNAME, USEREMAIL,
+            FILTERS, TEMPLATENAME, WORKORDERID, SHARED,
+            SHAREDUSERNAME, COLUMNS
+        ) VALUES (
+            :id, :region, :format_type, :userName, :userEmail,
+            :filters, :templatename, :workorderid, :shared,
+            :sharedUserName, :columns
+        )
+        """
+
+        bind_data = {
+            "id": data.get("id"),
+            "region": data.get("region"),
+            "format_type": data.get("format_type"),
+            "userName": data.get("userName"),
+            "userEmail": data.get("userEmail"),
+            "filters": json.dumps(data.get("filters", {})),
+            "templatename": data.get("templatename"),
+            "workorderid": data.get("workorderid"),
+            "shared": 1 if data.get("shared") else 0,
+            "sharedUserName": data.get("sharedUserName"),
+            "columns": json.dumps(data.get("columns", []))
+        }
+
+        cursor.execute(insert_sql, bind_data)
+        connection.commit()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        connection.close()
+
+    return jsonify({'message': 'Template saved successfully'})
+
+=======================================================================================================================================================
+
+@app.route('/EditTemplate/<template_id>', methods=['PUT'])
+def edit_template(template_id):
+    data = request.get_json()
+
+    connection = db.get_db_connection(env)
+    if not connection:
+        return jsonify({'error': 'Failed to connect to database'}), 500
+    cursor = connection.cursor()
+
+    try:
+        update_sql = """
+        UPDATE TEMPLATE_DATA SET
+            REGION = :region,
+            FORMAT_TYPE = :format_type,
+            USERNAME = :userName,
+            USEREMAIL = :userEmail,
+            FILTERS = :filters,
+            TEMPLATENAME = :templatename,
+            WORKORDERID = :workorderid,
+            SHARED = :shared,
+            SHAREDUSERNAME = :sharedUserName,
+            COLUMNS = :columns
+        WHERE ID = :id
+        """
+
+        bind_data = {
+            "region": data.get("region"),
+            "format_type": data.get("format_type"),
+            "userName": data.get("userName"),
+            "userEmail": data.get("userEmail"),
+            "filters": json.dumps(data.get("filters", {})),
+            "templatename": data.get("templatename"),
+            "workorderid": data.get("workorderid"),
+            "shared": 1 if data.get("shared") else 0,
+            "sharedUserName": data.get("sharedUserName"),
+            "columns": json.dumps(data.get("columns", [])),
+            "id": template_id
+        }
+
+        cursor.execute(update_sql, bind_data)
+        connection.commit()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        connection.close()
+
+    return jsonify({'message': 'Template updated successfully'})
+
+=======================================================================================================================================================
+@app.route('/DeleteTemplate/<template_id>', methods=['DELETE'])
+def delete_template(template_id):
+    connection = db.get_db_connection(env)
+    if not connection:
+        return jsonify({'error': 'Failed to connect to database'}), 500
+    cursor = connection.cursor()
+
+    try:
+        delete_sql = "DELETE FROM TEMPLATE_DATA WHERE ID = :id"
+        cursor.execute(delete_sql, {"id": template_id})
+        connection.commit()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        connection.close()
+
+    return jsonify({'message': f'Template with ID {template_id} deleted successfully'})
