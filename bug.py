@@ -32,8 +32,13 @@ data = {
             "sortBy": "ascending",
             "value": "Customer Num"
         }
-    ]
+    ],
+    "templatename": "Default Template",
+    "workorderid": "123456",
+    "shared": True,
+    "sharedUserName": "Abdur"
 }
+
 # === Step 2: Decrypt Oracle Credentials ===
 config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
 with open(config_path) as f:
@@ -81,14 +86,14 @@ CREATE TABLE {table_name} (
 cursor.execute(create_table_sql)
 print(f"Created table {table_name}")
 
-#=== Step 6: Insert Data ===
+# === Step 6: Insert Data ===
 insert_sql = f"""
 INSERT INTO {table_name} (
     TEMPLATE_ID, USERDATA, REGION, FORMAT_TYPE,  
     FILTERS, TEMPLATENAME, WORKORDERID, SHARED,
     SHAREDUSERNAME, COLUMNS
 ) VALUES (
-    :template_id,: userdata,:region, :format_type,
+    :template_id, :userdata, :region, :format_type,
     :filters, :templatename, :workorderid, :shared,
     :sharedUserName, :columns
 )
