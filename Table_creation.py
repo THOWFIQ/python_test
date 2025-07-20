@@ -65,7 +65,8 @@ except oracledb.DatabaseError:
 
 create_table_sql = f"""
 CREATE TABLE {table_name} (
-    ID VARCHAR2(100),
+    ID IS A PRIMARY KEY
+    TEMPLATE_ID VARCHAR2(100),
     REGION VARCHAR2(50),
     FORMAT_TYPE VARCHAR2(50),
     USERNAME VARCHAR2(100),
