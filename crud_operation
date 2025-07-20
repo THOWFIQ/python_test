@@ -1,0 +1,57 @@
+@app.route('/GetTemplates', methods=['GET'])
+def get_templates():
+    if getattr(g, 'skip_logs', False):
+        return response
+    g.skip_logs = True
+
+    # Optional query params
+    region = request.args.get('region')
+    template_id = request.args.get('id')
+
+    connection = db.get_db_connection(env)
+    if not connection:
+        return jsonify({'error': 'Failed to connect to the database'}), 500
+
+    cursor = connection.cursor()
+
+    try:
+        # Dynamic WHERE clause
+        query = f"SELECT ID, REGION, FORMAT_TYPE, USERNAME, USEREMAIL, FILTERS, TEMPLATENAME, WORKORDERID, SHARED, SHAREDUSERNAME, COLUMNS FROM TEMPLATE_DATA"
+        filters = []
+        bind_params = {}
+
+        if region:
+            filters.append("REGION = :region")
+            bind_params["region"] = region
+        if template_id:
+            filters.append("ID = :id")
+            bind_params["id"] = template_id
+
+        if filters:
+            query += " WHERE " + " AND ".join(filters)
+
+        cursor.execute(query, bind_params)
+        rows = cursor.fetchall()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        connection.close()
+
+    result = []
+    for row in rows:
+        result.append({
+            "id": row[0],
+            "region": row[1],
+            "format_type": row[2],
+            "userName": row[3],
+            "userEmail": row[4],
+            "filters": json.loads(row[5].read()) if row[5] else {},
+            "templatename": row[6],
+            "workorderid": row[7],
+            "shared": bool(row[8]),
+            "sharedUserName": row[9],
+            "columns": json.loads(row[10].read()) if row[10] else []
+        })
+
+    return jsonify(result)
