@@ -1,39 +1,43 @@
-def OutputFormat(result_map):
-    flat_list = []
+def OutputFormat(result_map, format_type='export'):
+    import json
+
+    # Parse string to dict if it's JSON string
+    if isinstance(result_map, str):
+        try:
+            result_map = json.loads(result_map)
+        except json.JSONDecodeError as e:
+            print(f"Failed to parse JSON string: {e}")
+            return []
 
     sales_orders = result_map.get("Sales_Order_id", [])
     fulfillments = result_map.get("Fullfillment Id", [])
-    foids = result_map.get("foid", [])
-    wo_ids = result_map.get("wo_id", [])
+    foid_data = result_map.get("foid", [])
+    wo_data = result_map.get("wo_id", [])
 
-    for idx, so_entry in enumerate(sales_orders):
+    flat_list = []
+
+    for so_index, so_entry in enumerate(sales_orders):
         try:
             soheader = so_entry["data"].get("getSoheaderBySoids", [{}])[0]
-            salesOrder = so_entry["data"].get("getBySalesorderids", [{}])[0]
+            salesorder = so_entry["data"].get("getBySalesorderids", [{}])[0]
 
-            fulfillment_data = fulfillments[idx]["data"] if idx < len(fulfillments) else {}
-            fo_data = foids[idx]["data"] if idx < len(foids) else {}
-            wo_data_list = wo_ids[idx] if idx < len(wo_ids) else []
+            fulfillment = fulfillments[so_index]["data"].get("getFulfillmentsById", {})
+            sofulfillment = fulfillments[so_index]["data"].get("getFulfillmentsBysofulfillmentid", {})
+            forderline = fulfillment.get("salesOrderLines", [{}])[0]
+            address = sofulfillment.get("address", [{}])[0]
 
-            ff_by_id = fulfillment_data.get("getFulfillmentsById", {})
-            ff_by_so = fulfillment_data.get("getFulfillmentsBysofulfillmentid", {})
-            address_list = ff_by_so.get("address", [])
-
-            address = address_list[0] if address_list else {}
-
-            # Shared fields (base row)
-            base_row = {
+            data_row_export = {
                 "BUID": soheader.get("buid"),
                 "PP Date": soheader.get("ppDate"),
-                "Sales Order Id": salesOrder.get("salesOrderId"),
-                "Fulfillment Id": ff_by_id.get("fulfillmentId"),
-                "Region Code": salesOrder.get("region"),
-                "FoId": fo_data.get("getAllFulfillmentHeadersByFoId", [{}])[0].get("foId"),
-                "System Qty": ff_by_id.get("systemQty"),
-                "Ship By Date": ff_by_id.get("shipByDate"),
-                "LOB": ff_by_id.get("salesOrderLines", [{}])[0].get("lob"),
-                "Ship From Facility": ff_by_id.get("forderlines", [{}])[0].get("shipFromFacility"),
-                "Ship To Facility": ff_by_id.get("forderlines", [{}])[0].get("shipToFacility"),
+                "Sales Order Id": salesorder.get("salesOrderId"),
+                "Fulfillment Id": fulfillment.get("fulfillmentId"),
+                "Region Code": salesorder.get("region"),
+                "FoId": foid_data[0]["data"].get("getAllFulfillmentHeadersByFoId", [{}])[0].get("foId"),
+                "System Qty": fulfillment.get("systemQty"),
+                "Ship By Date": fulfillment.get("shipByDate"),
+                "LOB": forderline.get("lob"),
+                "Ship From Facility": forderline.get("shipFromFacility"),
+                "Ship To Facility": forderline.get("shipToFacility"),
                 "Tax Regstrn Num": address.get("taxRegstrnNum"),
                 "Address Line1": address.get("addressLine1"),
                 "Postal Code": address.get("postalCode"),
@@ -43,36 +47,60 @@ def OutputFormat(result_map):
                 "Customer Name Ext": address.get("customerNameExt"),
                 "Country": address.get("country"),
                 "Create Date": address.get("createDate"),
-                "Ship Code": ff_by_so.get("shipCode"),
-                "Must Arrive By Date": ff_by_so.get("mustArriveByDate"),
-                "Update Date": ff_by_so.get("updateDate"),
-                "Merge Type": ff_by_so.get("mergeType"),
-                "Manifest Date": ff_by_so.get("manifestDate"),
-                "Revised Delivery Date": ff_by_so.get("revisedDeliveryDate"),
-                "Delivery City": ff_by_so.get("deliveryCity"),
-                "Source System Id": ff_by_so.get("sourceSystemId"),
-                "IsDirect Ship": ff_by_so.get("isDirectShip"),
-                "SSC": ff_by_so.get("ssc"),
-                "OIC Id": ff_by_so.get("oicId"),
-                "Order Date": soheader.get("orderDate")
+                "Ship Code": sofulfillment.get("shipCode"),
+                "Must Arrive By Date": sofulfillment.get("mustArriveByDate"),
+                "Update Date": sofulfillment.get("updateDate"),
+                "Merge Type": sofulfillment.get("mergeType"),
+                "Manifest Date": sofulfillment.get("manifestDate"),
+                "Revised Delivery Date": sofulfillment.get("revisedDeliveryDate"),
+                "Delivery City": sofulfillment.get("deliveryCity"),
+                "Source System Id": sofulfillment.get("sourceSystemId"),
+                "IsDirect Ship": sofulfillment.get("isDirectShip"),
+                "SSC": sofulfillment.get("ssc"),
+                "OIC Id": sofulfillment.get("oicId"),
+                "Order Date": soheader.get("orderDate"),
+                "wo_ids": wo_data
             }
 
-            # Loop through work orders
-            for wo in wo_data_list:
-                flat_wo = {k: v[0] if isinstance(v, tuple) else v for k, v in wo.items() if k != "SN Number"}
+            base = {k: v for k, v in data_row_export.items() if k != "wo_ids"}
+
+            for wo in wo_data:
                 sn_list = wo.get("SN Number", [])
+                wo_flat = {k: v[0] if isinstance(v, tuple) else v for k, v in wo.items() if k != "SN Number"}
 
                 if sn_list:
                     for sn in sn_list:
-                        row = {**base_row, **flat_wo, "SN Number": sn}
-                        flat_list.append(row)
+                        flat_entry = {**base, **wo_flat, "SN Number": sn}
+                        flat_list.append(flat_entry)
                 else:
-                    row = {**base_row, **flat_wo, "SN Number": None}
-                    flat_list.append(row)
+                    flat_entry = {**base, **wo_flat, "SN Number": None}
+                    flat_list.append(flat_entry)
 
         except Exception as e:
-            print(f"Error formatting entry {idx}: {e}")
-            continue
+            print(f"Error formatting row {so_index}: {e}")
 
-    print(json.dumps(flat_list, indent=2))
-    return flat_list
+    if format_type == "export":
+        return flat_list
+
+    elif format_type == "grid":
+        desired_order = [
+            'BUID', 'PP Date', 'Sales Order Id', 'Fulfillment Id', 'Region Code', 'FoId', 'System Qty', 'Ship By Date',
+            'LOB', 'Ship From Facility', 'Ship To Facility', 'Tax Regstrn Num', 'Address Line1', 'Postal Code',
+            'State Code', 'City Code', 'Customer Num', 'Customer Name Ext', 'Country', 'Create Date', 'Ship Code',
+            'Must Arrive By Date', 'Update Date', 'Merge Type', 'Manifest Date', 'Revised Delivery Date',
+            'Delivery City', 'Source System Id', 'IsDirect Ship', 'SSC', 'Vendor Work Order Num', 'Channel Status Code',
+            'Ismultipack', 'Ship Mode', 'Is Otm Enabled', 'SN Number', 'OIC Id', 'Order Date'
+        ]
+
+        rows = []
+        for item in flat_list:
+            reordered_values = [item.get(key, "") for key in desired_order]
+            row = {
+                "columns": [{"value": val} for val in reordered_values]
+            }
+            rows.append(row)
+
+        return rows
+
+    else:
+        return {"error": "Format type is not part of grid/export"}
