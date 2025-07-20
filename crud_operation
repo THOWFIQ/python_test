@@ -1,22 +1,29 @@
 @app.route('/GetTemplates', methods=['GET'])
 def get_templates():
     if getattr(g, 'skip_logs', False):
-        return response
+        return jsonify({'message': 'Logs skipped'})
     g.skip_logs = True
 
     # Optional query params
     region = request.args.get('region')
     template_id = request.args.get('id')
 
+    print(f"Query Params - region: {region}, id: {template_id}")
+
     connection = db.get_db_connection(env)
     if not connection:
+        print("Failed to connect to DB")
         return jsonify({'error': 'Failed to connect to the database'}), 500
 
     cursor = connection.cursor()
 
     try:
-        # Dynamic WHERE clause
-        query = f"SELECT ID, REGION, FORMAT_TYPE, USERNAME, USEREMAIL, FILTERS, TEMPLATENAME, WORKORDERID, SHARED, SHAREDUSERNAME, COLUMNS FROM TEMPLATE_DATA"
+        query = """
+        SELECT TEMPLATE_ID, REGION, FORMAT_TYPE, USERNAME, USEREMAIL,
+               FILTERS, TEMPLATENAME, WORKORDERID, SHARED,
+               SHAREDUSERNAME, COLUMNS
+        FROM TEMPLATE_DATA
+        """
         filters = []
         bind_params = {}
 
@@ -30,9 +37,14 @@ def get_templates():
         if filters:
             query += " WHERE " + " AND ".join(filters)
 
+        print("Final SQL Query:", query)
+        print("Bind Params:", bind_params)
+
         cursor.execute(query, bind_params)
         rows = cursor.fetchall()
+        print(f"Rows fetched: {len(rows)}")
     except Exception as e:
+        print("Exception during DB query:", str(e))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -40,23 +52,34 @@ def get_templates():
 
     result = []
     for row in rows:
+        try:
+            filters_json = json.loads(row[5]) if row[5] else {}
+        except Exception as e:
+            print("Error parsing filters JSON:", str(e))
+            filters_json = {}
+
+        try:
+            columns_json = json.loads(row[10]) if row[10] else []
+        except Exception as e:
+            print("Error parsing columns JSON:", str(e))
+            columns_json = []
+
         result.append({
-            "id": row[0],
+            "template_id": row[0],
             "region": row[1],
             "format_type": row[2],
             "userName": row[3],
             "userEmail": row[4],
-            "filters": json.loads(row[5].read()) if row[5] else {},
+            "filters": filters_json,
             "templatename": row[6],
             "workorderid": row[7],
             "shared": bool(row[8]),
             "sharedUserName": row[9],
-            "columns": json.loads(row[10].read()) if row[10] else []
+            "columns": columns_json
         })
 
+    print("Returning result:", result)
     return jsonify(result)
-
-=======================================================================================================================================================
 
 @app.route('/SaveTemplate', methods=['POST'])
 def save_template():
@@ -70,18 +93,18 @@ def save_template():
     try:
         insert_sql = """
         INSERT INTO TEMPLATE_DATA (
-            ID, REGION, FORMAT_TYPE, USERNAME, USEREMAIL,
+            TEMPLATE_ID, REGION, FORMAT_TYPE, USERNAME, USEREMAIL,
             FILTERS, TEMPLATENAME, WORKORDERID, SHARED,
             SHAREDUSERNAME, COLUMNS
         ) VALUES (
-            :id, :region, :format_type, :userName, :userEmail,
+            :template_id, :region, :format_type, :userName, :userEmail,
             :filters, :templatename, :workorderid, :shared,
             :sharedUserName, :columns
         )
         """
 
         bind_data = {
-            "id": data.get("id"),
+            "template_id": data.get("id"),
             "region": data.get("region"),
             "format_type": data.get("format_type"),
             "userName": data.get("userName"),
@@ -103,8 +126,6 @@ def save_template():
         connection.close()
 
     return jsonify({'message': 'Template saved successfully'})
-
-=======================================================================================================================================================
 
 @app.route('/EditTemplate/<template_id>', methods=['PUT'])
 def edit_template(template_id):
@@ -128,7 +149,7 @@ def edit_template(template_id):
             SHARED = :shared,
             SHAREDUSERNAME = :sharedUserName,
             COLUMNS = :columns
-        WHERE ID = :id
+        WHERE TEMPLATE_ID = :template_id
         """
 
         bind_data = {
@@ -142,7 +163,7 @@ def edit_template(template_id):
             "shared": 1 if data.get("shared") else 0,
             "sharedUserName": data.get("sharedUserName"),
             "columns": json.dumps(data.get("columns", [])),
-            "id": template_id
+            "template_id": data.get("template_id")
         }
 
         cursor.execute(update_sql, bind_data)
@@ -155,7 +176,6 @@ def edit_template(template_id):
 
     return jsonify({'message': 'Template updated successfully'})
 
-=======================================================================================================================================================
 @app.route('/DeleteTemplate/<template_id>', methods=['DELETE'])
 def delete_template(template_id):
     connection = db.get_db_connection(env)
@@ -164,8 +184,8 @@ def delete_template(template_id):
     cursor = connection.cursor()
 
     try:
-        delete_sql = "DELETE FROM TEMPLATE_DATA WHERE ID = :id"
-        cursor.execute(delete_sql, {"id": template_id})
+        delete_sql = "DELETE FROM TEMPLATE_DATA WHERE TEMPLATE_ID = :template_id"
+        cursor.execute(delete_sql, {"template_id": template_id})
         connection.commit()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -173,4 +193,4 @@ def delete_template(template_id):
         cursor.close()
         connection.close()
 
-    return jsonify({'message': f'Template with ID {template_id} deleted successfully'})
+    return jsonify({'message': f'Template with TEMPLATE ID {template_id} deleted successfully'})
