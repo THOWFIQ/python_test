@@ -1,3 +1,85 @@
+def fileldValidation(filters, format_type, region):
+    data_row_export = {}
+    primary_in_filters = []
+    secondary_in_filters = []
+
+    for field in filters:
+        if field in PRIMARY_FIELDS:
+            primary_in_filters.append(field)
+        elif field in SECONDARY_FIELDS:
+            secondary_in_filters.append(field)
+
+    if not primary_in_filters:
+        return {
+            "status": "error",
+            "message": "At least one primary field is required in filters."
+        }
+
+    primary_filters = {key: filters[key] for key in primary_in_filters}
+    secondary_filters = {key: filters[key] for key in secondary_in_filters}
+    result_map = {}
+
+    if 'Sales_Order_id' in primary_filters:
+        so_ids = list(set(x.strip() for x in primary_filters['Sales_Order_id'].split(',') if x.strip()))
+        salesorder_results = []
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(combined_salesorder_fetch, soid) for soid in so_ids]
+            for future in as_completed(futures):
+                try:
+                    res = future.result()
+                    if res:
+                        salesorder_results.append(res)
+                except Exception as e:
+                    print(f"Error in SalesOrder ID fetch: {e}")
+        result_map['Sales_Order_id'] = salesorder_results
+
+    if 'foid' in primary_filters:
+        foids = list(set(x.strip() for x in primary_filters['foid'].split(',') if x.strip()))
+        foid_result = []
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(combined_foid_fetch, foid) for foid in foids]
+            for future in as_completed(futures):
+                try:
+                    foid_result.append(future.result())
+                except Exception as e:
+                    print(f"Error in FO ID fetch: {e}")
+        result_map['foid'] = foid_result
+
+    if 'wo_id' in primary_filters:
+        woids = list(set(x.strip() for x in primary_filters['wo_id'].split(',') if x.strip()))
+        woids_result = []
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(combined_woid_fetch, woid) for woid in woids]
+            for future in as_completed(futures):
+                try:
+                    woids_result.append(future.result())
+                except Exception as e:
+                    print(f"Error in WO ID fetch: {e}")
+
+        result_map['wo_id'] = woids_result
+
+    if 'Fullfillment Id' in primary_filters:
+        ff_ids = list(set(x.strip() for x in primary_filters['Fullfillment Id'].split(',') if x.strip()))
+        fullfillment_results = []
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(combined_fulfillment_fetch, fid) for fid in ff_ids]
+            for future in as_completed(futures):
+                try:
+                    res = future.result()
+                    if res:
+                        fullfillment_results.append(res)
+                except Exception as e:
+                    print(f"Error in Fullfillment Id fetch: {e}")
+        result_map['Fullfillment Id'] = fullfillment_results
+        print(result_map)
+        formattingData = OutputFormat(result_map)
+        
+    return {
+        "status": "success",
+        "message": "Validation and fetch completed.",
+        "result_summary": {key: f"{len(val)} response(s)" for key, val in result_map.items()}
+    }
+
 def OutputFormat(result_map, format_type=None):
     flat_list = []
 
