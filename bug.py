@@ -1,5 +1,4 @@
-def OutputFormat(result_map, format_type=None):
-    import json
+def OutputFormat(result_map, format_type=None, secondary_filters=None):
     flat_list = []
 
     sales_orders = result_map.get("Sales_Order_id", [])
@@ -9,10 +8,6 @@ def OutputFormat(result_map, format_type=None):
 
     for so_index, so_entry in enumerate(sales_orders):
         try:
-            if not isinstance(so_entry, dict):
-                print(f"[WARN] sales_orders[{so_index}] is not a dict.")
-                continue
-
             so_data = so_entry.get("data", {})
             get_soheaders = so_data.get("getSoheaderBySoids", [])
             get_salesorders = so_data.get("getBySalesorderids", [])
@@ -21,58 +16,28 @@ def OutputFormat(result_map, format_type=None):
                 print(f"[WARN] Missing SO headers or sales orders at row {so_index}")
                 continue
 
-            soheader = get_soheaders[0] if isinstance(get_soheaders, list) else {}
-            salesorder = get_salesorders[0] if isinstance(get_salesorders, list) else {}
+            soheader = get_soheaders[0]
+            salesorder = get_salesorders[0]
 
-            fulfillment = {}
-            sofulfillment = {}
-            forderline = {}
-            address = {}
+            fulfillment_entry = fulfillments[so_index] if so_index < len(fulfillments) else {"data": {}}
+            fulfillment_data = fulfillment_entry.get("data", {})
 
-            if so_index < len(fulfillments):
-                fulfillment_entry = fulfillments[so_index]
-                if isinstance(fulfillment_entry, dict):
-                    fulfillment_data = fulfillment_entry.get("data", {})
-                    f_raw = fulfillment_data.get("getFulfillmentsById")
-                    s_raw = fulfillment_data.get("getFulfillmentsBysofulfillmentid")
+            fulfillment = fulfillment_data.get("getFulfillmentsById", {})
+            sofulfillment = fulfillment_data.get("getFulfillmentsBysofulfillmentid", {})
+            forderline = (fulfillment.get("salesOrderLines") or [{}])[0] if isinstance(fulfillment, dict) else {}
+            address = (sofulfillment.get("address") or [{}])[0] if isinstance(sofulfillment, dict) else {}
 
-                    # Handle if 'getFulfillmentsById' is a list
-                    if isinstance(f_raw, list):
-                        fulfillment = f_raw[0] if f_raw else {}
-                    elif isinstance(f_raw, dict):
-                        fulfillment = f_raw
-
-                    if isinstance(s_raw, list):
-                        sofulfillment = s_raw[0] if s_raw else {}
-                    elif isinstance(s_raw, dict):
-                        sofulfillment = s_raw
-
-                    forderline = (fulfillment.get("salesOrderLines") or [{}])[0]
-                    address = (sofulfillment.get("address") or [{}])[0]
-
-            if so_index < len(wo_ids):
-                wo_data = wo_ids[so_index]
-                if isinstance(wo_data, str):
-                    wo_data = json.loads(wo_data)
-            else:
-                wo_data = []
-
-            if not isinstance(wo_data, list):
-                wo_data = [wo_data]
-
-            foid_entry = None
-            if foid_data and isinstance(foid_data[0], dict):
-                foid_entry = foid_data[0].get("data", {}).get("getAllFulfillmentHeadersByFoId", [{}])[0]
+            wo_data = wo_ids[so_index] if so_index < len(wo_ids) else []
 
             data_row_export = {
                 "BUID": soheader.get("buid"),
                 "PP Date": soheader.get("ppDate"),
                 "Sales Order Id": salesorder.get("salesOrderId"),
-                "Fulfillment Id": fulfillment.get("fulfillmentId"),
+                "Fulfillment Id": fulfillment.get("fulfillmentId") if isinstance(fulfillment, dict) else "",
                 "Region Code": salesorder.get("region"),
-                "FoId": foid_entry.get("foId") if foid_entry else None,
-                "System Qty": fulfillment.get("systemQty"),
-                "Ship By Date": fulfillment.get("shipByDate"),
+                "FoId": foid_data[0]["data"].get("getAllFulfillmentHeadersByFoId", [{}])[0].get("foId") if foid_data else None,
+                "System Qty": fulfillment.get("systemQty") if isinstance(fulfillment, dict) else "",
+                "Ship By Date": fulfillment.get("shipByDate") if isinstance(fulfillment, dict) else "",
                 "LOB": forderline.get("lob"),
                 "Ship From Facility": forderline.get("shipFromFacility"),
                 "Ship To Facility": forderline.get("shipToFacility"),
@@ -104,30 +69,28 @@ def OutputFormat(result_map, format_type=None):
 
             for wo in wo_data:
                 if isinstance(wo, str):
-                    try:
-                        wo = json.loads(wo)
-                    except:
-                        continue
-
-                if not isinstance(wo, dict):
+                    print(f"[WARN] Skipping invalid wo entry: {wo}")
                     continue
 
                 sn_numbers = wo.get("SN Number", [])
                 wo_clean = {k: v for k, v in wo.items() if k != "SN Number"}
 
-                if sn_numbers and isinstance(sn_numbers, list):
+                if sn_numbers:
                     for sn in sn_numbers:
                         row = {**base, **wo_clean, "SN Number": sn}
+                        if not validate_secondary_filters(row, secondary_filters):
+                            continue
                         flat_list.append(row)
                 else:
                     row = {**base, **wo_clean, "SN Number": None}
+                    if not validate_secondary_filters(row, secondary_filters):
+                        continue
                     flat_list.append(row)
 
         except Exception as e:
             print(f"[ERROR] formatting row {so_index}: {e}")
             import traceback
             traceback.print_exc()
-            continue
 
     if format_type == "export":
         return flat_list
@@ -152,4 +115,14 @@ def OutputFormat(result_map, format_type=None):
         return rows
 
     else:
-        return {"error": "Format type must be either 'grid' or 'export'"}
+        return {"error": "Format type is not part of grid/export"}
+
+
+def validate_secondary_filters(row, filters):
+    if not filters:
+        return True
+    for key, expected_val in filters.items():
+        actual_val = str(row.get(key, "")).lower()
+        if actual_val != str(expected_val).lower():
+            return False
+    return True
