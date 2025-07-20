@@ -1,3 +1,5 @@
+import traceback
+
 @app.route('/GetTemplates', methods=['GET'])
 def get_templates():
     if getattr(g, 'skip_logs', False):
@@ -33,10 +35,15 @@ def get_templates():
         if filters:
             query += " WHERE " + " AND ".join(filters)
 
+        print("Running SQL:", query)
+        print("With Bind Params:", bind_params)
+
         cursor.execute(query, bind_params)
         rows = cursor.fetchall()
 
     except Exception as e:
+        print("❌ Exception occurred:", str(e))
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -45,21 +52,16 @@ def get_templates():
     result = []
 
     for row in rows:
-        # Print debug (optional)
-        print("Raw filters from DB:", row[5])
-        print("Raw columns from DB:", row[10])
-
-        # Parse safely
         try:
             filters_json = json.loads(row[5]) if row[5] else {}
         except Exception as e:
-            print("Error parsing filters:", e)
+            print("❌ Failed to parse filters:", e)
             filters_json = {}
 
         try:
             columns_json = json.loads(row[10]) if row[10] else []
         except Exception as e:
-            print("Error parsing columns:", e)
+            print("❌ Failed to parse columns:", e)
             columns_json = []
 
         result.append({
@@ -73,7 +75,11 @@ def get_templates():
             "workorderid": row[7],
             "shared": bool(row[8]),
             "sharedUserName": row[9],
-            "columns": columns_json
+            "columns": columns_json,
+            "logs": {
+                "urls": [],
+                "time": []
+            }
         })
 
     return jsonify(result)
