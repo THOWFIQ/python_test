@@ -126,3 +126,8 @@ def validate_secondary_filters(row, filters):
         if actual_val != str(expected_val).lower():
             return False
     return True
+               
+[ERROR] formatting row 1: 0
+Traceback (most recent call last):
+  File "C:\Users\Thowfiq_S\Project\fdhdataservice\OrderLookUpFunction\test.py", line 238, in OutputFormat
+    salesorder = get_salesorders[0]
