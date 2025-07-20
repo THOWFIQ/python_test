@@ -12,7 +12,6 @@ def get_templates():
         return jsonify({'error': 'Failed to connect to the database'}), 500
 
     cursor = connection.cursor()
-
     result = []
 
     try:
@@ -35,12 +34,23 @@ def get_templates():
         if filters:
             query += " WHERE " + " AND ".join(filters)
 
+        print("Running SQL:", query)
+        print("With Bind Params:", bind_params)
+
         cursor.execute(query, bind_params)
         rows = cursor.fetchall()
 
         for row in rows:
             try:
-                filters_clob = row[5]
+                userdata_clob = row[1]
+                userdata_str = userdata_clob.read() if hasattr(userdata_clob, 'read') else userdata_clob
+                userdata_json = json.loads(userdata_str) if userdata_str else {}
+            except Exception as e:
+                print("Failed to parse userdata:", e)
+                userdata_json = {}
+
+            try:
+                filters_clob = row[4]
                 filters_str = filters_clob.read() if hasattr(filters_clob, 'read') else filters_clob
                 filters_json = json.loads(filters_str) if filters_str else {}
             except Exception as e:
@@ -48,7 +58,7 @@ def get_templates():
                 filters_json = {}
 
             try:
-                columns_clob = row[10]
+                columns_clob = row[9]
                 columns_str = columns_clob.read() if hasattr(columns_clob, 'read') else columns_clob
                 columns_json = json.loads(columns_str) if columns_str else []
             except Exception as e:
@@ -57,15 +67,19 @@ def get_templates():
 
             result.append({
                 "template_id": row[0],
-                "region": row[1],
-                "format_type": row[2],
-                
+                "userdata": userdata_json,
+                "region": row[2],
+                "format_type": row[3],
                 "filters": filters_json,
-                "templatename": row[6],
-                "workorderid": row[7],
-                "shared": bool(row[8]),
-                "sharedUserName": row[9],
-                "columns": columns_json
+                "templatename": row[5],
+                "workorderid": row[6],
+                "shared": bool(row[7]),
+                "sharedUserName": row[8],
+                "columns": columns_json,
+                "logs": {
+                    "urls": [],
+                    "time": []
+                }
             })
 
     except Exception as e:
