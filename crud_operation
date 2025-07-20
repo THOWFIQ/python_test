@@ -4,15 +4,11 @@ def get_templates():
         return jsonify({'message': 'Logs skipped'})
     g.skip_logs = True
 
-    # Optional query params
     region = request.args.get('region')
     template_id = request.args.get('id')
 
-    print(f"Query Params - region: {region}, id: {template_id}")
-
     connection = db.get_db_connection(env)
     if not connection:
-        print("Failed to connect to DB")
         return jsonify({'error': 'Failed to connect to the database'}), 500
 
     cursor = connection.cursor()
@@ -31,20 +27,15 @@ def get_templates():
             filters.append("REGION = :region")
             bind_params["region"] = region
         if template_id:
-            filters.append("ID = :id")
-            bind_params["id"] = template_id
+            filters.append("TEMPLATE_ID = :template_id")
+            bind_params["template_id"] = template_id
 
         if filters:
             query += " WHERE " + " AND ".join(filters)
 
-        print("Final SQL Query:", query)
-        print("Bind Params:", bind_params)
-
         cursor.execute(query, bind_params)
         rows = cursor.fetchall()
-        print(f"Rows fetched: {len(rows)}")
     except Exception as e:
-        print("Exception during DB query:", str(e))
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()
@@ -54,14 +45,12 @@ def get_templates():
     for row in rows:
         try:
             filters_json = json.loads(row[5]) if row[5] else {}
-        except Exception as e:
-            print("Error parsing filters JSON:", str(e))
+        except:
             filters_json = {}
 
         try:
             columns_json = json.loads(row[10]) if row[10] else []
-        except Exception as e:
-            print("Error parsing columns JSON:", str(e))
+        except:
             columns_json = []
 
         result.append({
@@ -78,7 +67,6 @@ def get_templates():
             "columns": columns_json
         })
 
-    print("Returning result:", result)
     return jsonify(result)
 
 @app.route('/SaveTemplate', methods=['POST'])
@@ -88,8 +76,8 @@ def save_template():
     connection = db.get_db_connection(env)
     if not connection:
         return jsonify({'error': 'Failed to connect to database'}), 500
-    cursor = connection.cursor()
 
+    cursor = connection.cursor()
     try:
         insert_sql = """
         INSERT INTO TEMPLATE_DATA (
@@ -104,7 +92,7 @@ def save_template():
         """
 
         bind_data = {
-            "template_id": data.get("id"),
+            "template_id": data.get("template_id"),
             "region": data.get("region"),
             "format_type": data.get("format_type"),
             "userName": data.get("userName"),
@@ -134,8 +122,8 @@ def edit_template(template_id):
     connection = db.get_db_connection(env)
     if not connection:
         return jsonify({'error': 'Failed to connect to database'}), 500
-    cursor = connection.cursor()
 
+    cursor = connection.cursor()
     try:
         update_sql = """
         UPDATE TEMPLATE_DATA SET
@@ -163,7 +151,7 @@ def edit_template(template_id):
             "shared": 1 if data.get("shared") else 0,
             "sharedUserName": data.get("sharedUserName"),
             "columns": json.dumps(data.get("columns", [])),
-            "template_id": data.get("template_id")
+            "template_id": template_id
         }
 
         cursor.execute(update_sql, bind_data)
@@ -181,8 +169,8 @@ def delete_template(template_id):
     connection = db.get_db_connection(env)
     if not connection:
         return jsonify({'error': 'Failed to connect to database'}), 500
-    cursor = connection.cursor()
 
+    cursor = connection.cursor()
     try:
         delete_sql = "DELETE FROM TEMPLATE_DATA WHERE TEMPLATE_ID = :template_id"
         cursor.execute(delete_sql, {"template_id": template_id})
@@ -193,4 +181,4 @@ def delete_template(template_id):
         cursor.close()
         connection.close()
 
-    return jsonify({'message': f'Template with TEMPLATE ID {template_id} deleted successfully'})
+    return jsonify({'message': f'Template with TEMPLATE_ID {template_id} deleted successfully'})
