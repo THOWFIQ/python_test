@@ -1,37 +1,42 @@
+from flask import Flask, request, jsonify
 import win32com.client
 
-# === Configuration ===
-subject_filter = "Your Subject Keyword"
-recipient_email = "recipient@example.com"
-link_to_include = "https://example.com/report/view?id=123456"
+app = Flask(__name__)
 
-# === Connect to Outlook ===
-outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+@app.route('/forwardEmailWithLink', methods=['POST'])
+def forward_email_with_link():
+    try:
+        data = request.get_json()
+        subject_filter = data.get('subject')  # e.g. "TSS Report"
+        recipient_email = data.get('to')      # e.g. "someone@example.com"
+        link = data.get('link')               # e.g. "https://example.com/report"
 
-# Inbox: 6 = inbox folder
-inbox = outlook.GetDefaultFolder(6)
-messages = inbox.Items
-messages.Sort("[ReceivedTime]", True)
+        if not all([subject_filter, recipient_email, link]):
+            return jsonify({'error': 'Missing subject, to, or link'}), 400
 
-# === Search for Email to Forward ===
-forwarded = False
-for message in messages:
-    if subject_filter in message.Subject:
-        # Create forward
-        forward = message.Forward()
-        forward.To = recipient_email
-        
-        # Insert link in the top of the body
-        original_body = message.Body
-        custom_body = f"Hello,\n\nPlease check the report using the link below:\n{link_to_include}\n\n--- Original Message Below ---\n\n{original_body}"
-        
-        forward.Body = custom_body
-        forward.Subject = f"FWD: {message.Subject}"
-        forward.Send()
+        outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+        inbox = outlook.GetDefaultFolder(6)  # 6 = inbox
+        messages = inbox.Items
+        messages.Sort("[ReceivedTime]", True)
 
-        print(f"Email forwarded to {recipient_email}")
-        forwarded = True
-        break
+        for message in messages:
+            if subject_filter.lower() in message.Subject.lower():
+                forward = message.Forward()
+                forward.To = recipient_email
 
-if not forwarded:
-    print("No email found with the specified subject.")
+                # Add link in HTML body
+                html_link = f'<p>Hello,<br><br>Please check the report using the link below:<br>' \
+                            f'<a href="{link}">{link}</a><br><br>' \
+                            f'--- Original Message Below ---<br></p>'
+                forward.HTMLBody = html_link + message.HTMLBody
+
+                forward.Subject = f"FWD: {message.Subject}"
+                forward.Send()
+
+                return jsonify({'message': f'Email forwarded to {recipient_email}'}), 200
+
+        return jsonify({'error': 'No matching email found'}), 404
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
