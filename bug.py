@@ -1,49 +1,37 @@
 from flask import Flask, request, jsonify
-import win32com.client
-import pythoncom  # ← Needed to initialize COM in Flask context
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 app = Flask(__name__)
 
-@app.route('/forwardEmailWithLink', methods=['POST'])
-def forward_email_with_link():
+@app.route('/sendEmail', methods=['POST'])
+def send_email():
+    data = request.json
+    recipient = data.get("to")
+    link = data.get("link")
+
+    smtp_server = "smtp.office365.com"
+    smtp_port = 587
+    sender_email = "your_email@yourdomain.com"
+    sender_password = "your_app_password"
+
+    subject = "Your Report is Ready"
+    html = f"""<p>Hello,<br><br>
+               Click <a href="{link}">here</a> to view your report.<br><br>
+               Regards,<br>Team</p>"""
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = sender_email
+    msg["To"] = recipient
+    msg.attach(MIMEText(html, "html"))
+
     try:
-        # Initialize COM for this thread
-        pythoncom.CoInitialize()
-
-        data = request.get_json()
-        subject_filter = data.get('subject')
-        recipient_email = data.get('to')
-        link = data.get('link')
-
-        if not all([subject_filter, recipient_email, link]):
-            return jsonify({'error': 'Missing subject, to, or link'}), 400
-
-        outlook = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
-        inbox = outlook.GetDefaultFolder(6)  # 6 = Inbox
-        messages = inbox.Items
-        messages.Sort("[ReceivedTime]", True)
-
-        for message in messages:
-            if subject_filter.lower() in message.Subject.lower():
-                forward = message.Forward()
-                forward.To = recipient_email
-
-                forward.HTMLBody = (
-                    f"<p>Hello,<br><br>"
-                    f"Please check the report: <a href='{link}'>{link}</a><br><br>"
-                    f"--- Original Message Below ---<br></p>"
-                    + message.HTMLBody
-                )
-
-                forward.Subject = f"FWD: {message.Subject}"
-                forward.Send()
-
-                return jsonify({'message': f'Email forwarded to {recipient_email}'}), 200
-
-        return jsonify({'error': 'No matching email found'}), 404
-
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, recipient, msg.as_string())
+        return jsonify({"message": "Email sent successfully"}), 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-    finally:
-        pythoncom.CoUninitialize()
+        return jsonify({"error": str(e)}), 500
