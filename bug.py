@@ -35,3 +35,7 @@ def send_email():
         return jsonify({"message": "Email sent successfully"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+
+ "error": "(535, b'5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Tenant. Visit https://aka.ms/smtp_auth_disabled for more information. [SG2PR02CA0040.apcprd02.prod.outlook.com 2025-07-21T10:26:08.277Z 08DDC79214586544]')",
