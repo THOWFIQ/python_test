@@ -16,6 +16,180 @@ FOID    = configPath['FM_Order_DAO']
 SOPATH  = configPath['SO_Header_DAO']
 WOID    = configPath['WO_Details_DAO']
 FFBOM   = configPath['FM_BOM_DAO']
+from flask import request, jsonify
+import requests
+import httpx
+import json
+import os
+import sys
+import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from graphqlQueries import *
+
+configABSpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
+with open(configABSpath, 'r') as file:
+    configPath = json.load(file)
+
+PRIMARY_FIELDS = {
+    "Sales_Order_id", "wo_id", "Fullfillment Id", "foid", "order_date"
+}
+SECONDARY_FIELDS = {
+    "ISMULTIPACK", "BUID", "Facility"
+}
+
+combined_salesorder_data  = {'data': {}}
+combined_fullfillment_data = {'data': {}}
+combined_foid_data = {'data': {}}
+combined_wo_data = {'data': {}}
+
+CollectedValue = {
+    "sales": False,
+    "FullFil": False,
+    "Work": False,
+    "Fo": False
+}
+
+def getPath(region):
+    try:
+        if region == "EMEA":
+            return {
+                "FID": configPath['Linkage_EMEA'],
+                "FOID": configPath['FM_Order_EMEA_APJ'],
+                "SOPATH": configPath['SO_Header_EMEA_APJ'],
+                "WOID": configPath['WO_Details_EMEA_APJ'],
+                "FFBOM": configPath['FM_BOM_EMEA_APJ']
+            }
+        elif region == "APJ":
+            return {
+                "FID": configPath['Linkage_APJ'],
+                "FOID": configPath['FM_Order_EMEA_APJ'],
+                "SOPATH": configPath['SO_Header_EMEA_APJ'],
+                "WOID": configPath['WO_Details_EMEA_APJ'],
+                "FFBOM": configPath['FM_BOM_EMEA_APJ']
+            }
+        elif region == "DAO":
+            return {
+                "FID": configPath['Linkage_DAO'],
+                "FOID": configPath['FM_Order_DAO'],
+                "SOPATH": configPath['SO_Header_DAO'],
+                "WOID": configPath['WO_Details_DAO'],
+                "FFBOM": configPath['FM_BOM_DAO']
+            }
+    except Exception as e:
+        print(f"[ERROR] getPath failed: {e}")
+        traceback.print_exc()
+        return {}
+
+def post_api(URL, query, variables):
+    try:
+        if variables:
+            response = httpx.post(URL, json={"query": query, "variables": variables}, verify=False)
+        else:
+            response = httpx.post(URL, json={"query": query}, verify=False)
+        return response.json()
+    except Exception as e:
+        print(f"[ERROR] post_api failed: {e}")
+        traceback.print_exc()
+        return {"error": str(e)}
+
+# All other functions remain unchanged (except below ones wrapped)
+
+def OutputFormat(result_map, format_type=None):
+    try:
+        flat_list = []
+        sales_orders = result_map.get("Sales_Order_id", [])
+        fulfillments = result_map.get("Fullfillment Id", [])
+        wo_ids = result_map.get("wo_id", [])
+        foid_data = result_map.get("foid", [])
+
+        for so_index, so_entry in enumerate(sales_orders):
+            try:
+                if not isinstance(so_entry, dict):
+                    continue
+                so_data = so_entry.get("data", {})
+                get_soheaders = so_data.get("getSoheaderBySoids", [])
+                get_salesorders = so_data.get("getBySalesorderids", {})
+
+                if not get_soheaders or not get_salesorders:
+                    continue
+
+                soheader = get_soheaders[0] if isinstance(get_soheaders, list) else {}
+                salesorder = get_salesorders.get("result", [{}])[0]
+
+                fulfillment, sofulfillment = {}, {}
+                if so_index < len(fulfillments):
+                    fulfillment_entry = fulfillments[so_index]
+                    if isinstance(fulfillment_entry, dict):
+                        fulfillment_data = fulfillment_entry.get("data", {})
+                        f_raw = fulfillment_data.get("getFulfillmentsById", [])
+                        s_raw = fulfillment_data.get("getFulfillmentsBysofulfillmentid", [])
+                        fulfillment = f_raw[0] if f_raw else {}
+                        sofulfillment = s_raw[0] if s_raw else {}
+
+                base_row = {
+                    "BUID": soheader.get("buid"),
+                    "PP Date": soheader.get("ppDate"),
+                    "Sales Order Id": soheader.get("salesOrderId"),
+                    "Fulfillment Id": salesorder['fulfillment'][0]['fulfillmentId'] if salesorder.get('fulfillment') else "",
+                    "Region Code": salesorder.get('salesOrder', {}).get('region', ""),
+                    "FoId": salesorder['fulfillmentOrders'][0]['foId'] if salesorder.get('fulfillmentOrders') else "",
+                    "System Qty": fulfillment.get('fulfillments', [{}])[0].get('systemQty', ""),
+                    "Ship By Date": fulfillment.get('fulfillments', [{}])[0].get('shipByDate', ""),
+                    "LOB": fulfillment.get('fulfillments', [{}])[0].get('salesOrderLines', [{}])[0].get('lob', ""),
+                    "Ship From Facility": "",
+                    "Ship To Facility": "",
+                    "Tax Regstrn Num": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('taxRegstrnNum', ""),
+                    "Address Line1": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('addressLine1', ""),
+                    "Postal Code": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('postalCode', ""),
+                    "State Code": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('stateCode', ""),
+                    "City Code": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('cityCode', ""),
+                    "Customer Num": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('customerNum', ""),
+                    "Customer Name Ext": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('customerNameExt', ""),
+                    "Country": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('country', ""),
+                    "Create Date": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('createDate', ""),
+                    "Ship Code": sofulfillment.get('fulfillments', [{}])[0].get("shipCode", ""),
+                    "Must Arrive By Date": sofulfillment.get('fulfillments', [{}])[0].get("mustArriveByDate", ""),
+                    "Update Date": sofulfillment.get('fulfillments', [{}])[0].get("updateDate", ""),
+                    "Merge Type": sofulfillment.get('fulfillments', [{}])[0].get("mergeType", ""),
+                    "Manifest Date": sofulfillment.get('fulfillments', [{}])[0].get("manifestDate", ""),
+                    "Revised Delivery Date": sofulfillment.get('fulfillments', [{}])[0].get("revisedDeliveryDate", ""),
+                    "Delivery City": sofulfillment.get('fulfillments', [{}])[0].get("deliveryCity", ""),
+                    "Source System Id": sofulfillment.get("sourceSystemId", ""),
+                    "IsDirect Ship": "",
+                    "SSC": "",
+                    "OIC Id": sofulfillment.get('fulfillments', [{}])[0].get("oicId", ""),
+                    "Order Date": soheader.get("orderDate", "")
+                }
+                flat_list.append(base_row)
+            except Exception as inner_e:
+                print(f"[ERROR] OutputFormat inner loop at index {so_index}: {inner_e}")
+                traceback.print_exc()
+                continue
+
+        if format_type == "export":
+            return flat_list
+
+        elif format_type == "grid":
+            desired_order = [
+                'BUID','PP Date','Sales Order Id','Fulfillment Id','Region Code','FoId','System Qty','Ship By Date',
+                'LOB','Ship From Facility','Ship To Facility','Tax Regstrn Num','Address Line1','Postal Code','State Code',
+                'City Code','Customer Num','Customer Name Ext','Country','Create Date','Ship Code','Must Arrive By Date',
+                'Update Date','Merge Type','Manifest Date','Revised Delivery Date','Delivery City','Source System Id','IsDirect Ship',
+                'SSC','Vendor Work Order Num','Channel Status Code','Ismultipack','Ship Mode','Is Otm Enabled',
+                'SN Number','OIC Id', 'Order Date'
+            ]
+            return [{"columns": [{"value": item.get(k, "")} for k in desired_order]} for item in flat_list]
+
+        return {"error": "Format type must be either 'grid' or 'export'"}
+    except Exception as e:
+        print(f"[ERROR] OutputFormat failed: {e}")
+        traceback.print_exc()
+        return {"error": str(e)}
+
+# You can similarly wrap `fieldValidation` and other main endpoints if used inside a Flask route
 
 def post_api(URL, query, variables):
     if variables:
