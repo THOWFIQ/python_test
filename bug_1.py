@@ -667,3 +667,13 @@ if __name__ == "__main__":
 
     import json
     print(json.dumps(flat_table, indent=2))
+
+
+Traceback (most recent call last):
+  File "C:\Users\Thowfiq_S\Project\fdhdataservice\OrderLookUpFunction\combinationWrapper.py", line 666, in <module>
+    flat_table = flatten_table(output)
+                 ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Thowfiq_S\Project\fdhdataservice\OrderLookUpFunction\combinationWrapper.py", line 642, in flatten_table
+    "columns": [{"value": key} for key in data_rows[0].keys()],
+                                          ^^^^^^^^^^^^^^^^^
+AttributeError: 'str' object has no attribute 'keys'
