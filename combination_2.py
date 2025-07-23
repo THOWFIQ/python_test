@@ -95,7 +95,316 @@ def post_api(URL, query, variables):
         traceback.print_exc()
         return {"error": str(e)}
 
-# All other functions remain unchanged (except below ones wrapped)
+def combined_salesorder_fetch(so_id, region, filters, CollectedValue):
+    try:
+        path = getPath(region)
+
+        soi = {"salesorderIds": [so_id]}
+        if so_id is not None:
+            soaorder_query = fetch_soaorder_query()
+            soaorder = post_api(URL=path['SOPATH'], query=soaorder_query, variables=soi)
+            if soaorder and soaorder.get('data'):
+                combined_salesorder_data['data']['getSoheaderBySoids'] = soaorder['data'].get('getSoheaderBySoids', [])
+
+            salesorder_query = fetch_salesorder_query(so_id)
+            salesorder = post_api(URL=path['FID'], query=salesorder_query, variables=None)
+            if salesorder and salesorder.get('data'):
+                combined_salesorder_data['data']['getBySalesorderids'] = salesorder['data'].get('getBySalesorderids', [])
+
+        return combined_salesorder_data
+    except Exception as e:
+        print(f"Error in combined_salesorder_fetch: {e}")
+        return {}
+
+def combined_fulfillment_fetch(fulfillment_id, region, filters, CollectedValue):
+    try:
+        path = getPath(region)
+        ffQid = {"fulfillment_id": fulfillment_id}
+
+        fulfillment_query = fetch_fulfillment_query()
+        fulfillment_data = post_api(URL=path['SOPATH'], query=fulfillment_query, variables=ffQid)
+        if fulfillment_data and fulfillment_data.get('data'):
+            combined_fullfillment_data['data']['getFulfillmentsById'] = fulfillment_data['data'].get('getFulfillmentsById', {})
+
+        salesOrderID = combined_fullfillment_data['data']['getFulfillmentsById'][0]['salesOrderId']
+
+        sofulfillment_query = fetch_getFulfillmentsBysofulfillmentid_query(fulfillment_id)
+        sofulfillment_data = post_api(URL=path['SOPATH'], query=sofulfillment_query, variables=ffQid)
+        if sofulfillment_data and sofulfillment_data.get('data'):
+            combined_fullfillment_data['data']['getFulfillmentsBysofulfillmentid'] = sofulfillment_data['data'].get('getFulfillmentsBysofulfillmentid', {})
+
+        directship_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(fulfillment_id)
+        directship_data = post_api(URL=path['FOID'], query=directship_query, variables=ffQid)
+        if directship_data and directship_data.get('data'):
+            combined_fullfillment_data['data']['getAllFulfillmentHeadersSoidFulfillmentid'] = directship_data['data'].get('getAllFulfillmentHeadersSoidFulfillmentid', {})
+
+        fbom_query = fetch_getFbomBySoFulfillmentid_query(fulfillment_id)
+        fbom_data = post_api(URL=path['FFBOM'], query=fbom_query, variables=ffQid)
+        if fbom_data and fbom_data.get('data'):
+            combined_fullfillment_data['data']['getFbomBySoFulfillmentid'] = fbom_data['data'].get('getFbomBySoFulfillmentid', {})
+
+        ffoid_query = fetch_salesorder_query(salesOrderID)
+        ffoidData = post_api(URL=path['FID'], query=ffoid_query, variables=None)
+        if ffoidData and ffoidData.get('data'):
+            combined_fullfillment_data['data']['getBySalesorderids'] = ffoidData['data'].get('getBySalesorderids', [])
+
+        return combined_fullfillment_data
+    except Exception as e:
+        print(f"Error in combined_fulfillment_fetch: {e}")
+        return {}
+
+def combined_foid_fetch(fo_id, region, filters, CollectedValue):
+    try:
+        path = getPath(region)
+
+        foid_query = fetch_foid_query(fo_id)
+        foid_output = post_api(URL=path['FOID'], query=foid_query, variables=None)
+        if foid_output and foid_output.get('data'):
+            combined_foid_data['data']['getAllFulfillmentHeadersByFoId'] = foid_output['data']['getAllFulfillmentHeadersByFoId']
+
+        fulfillment_id = combined_foid_data['data']['getAllFulfillmentHeadersByFoId'][0]['fulfillmentId']
+
+        if fulfillment_id is not None:
+            fulfillment_query = fetch_getByFulfillmentids_query(fulfillment_id)
+            fulfillment_data = post_api(URL=path['FID'], query=fulfillment_query, variables=None)
+            if fulfillment_data and fulfillment_data.get('data'):
+                combined_foid_data['data']['getAllFulfillmentHeadersByFoId'] = fulfillment_data['data'].get('getByFulfillmentids', [])
+
+        return combined_foid_data
+    except Exception as e:
+        print(f"Error in combined_foid_fetch: {e}")
+        return {}
+
+def combined_woid_fetch(wo_id, region, filters, CollectedValue):
+    try:
+        path = getPath(region)
+
+        wo_query = fetch_getByWorkorderids_query(wo_id)
+        wo_data = post_api(URL=path['FID'], query=wo_query, variables=None)
+        if wo_data and wo_data.get('data'):
+            combined_wo_data['data']['getByWorkorderids'] = wo_data['data'].get('getByWorkorderids', {})
+
+        return combined_wo_data
+    except Exception as e:
+        print(f"Error in combined_woid_fetch: {e}")
+        return {}
+def fieldValidation(filters, format_type, region):
+    data_row_export = {}
+    primary_in_filters = []
+    secondary_in_filters = []
+
+    try:
+        for field in filters:
+            if field in PRIMARY_FIELDS:
+                primary_in_filters.append(field)
+            elif field in SECONDARY_FIELDS:
+                secondary_in_filters.append(field)
+
+        if not primary_in_filters:
+            return {
+                "status": "error",
+                "message": "At least one primary field is required in filters."
+            }
+
+        primary_filters = {key: filters[key] for key in primary_in_filters}
+        secondary_filters = {key: filters[key] for key in secondary_in_filters}
+        result_map = {}
+
+        # ---------- Sales Order Block ----------
+        if 'Sales_Order_id' in primary_filters and not CollectedValue['sales']:
+            try:
+                so_ids = list(set(x.strip() for x in primary_filters['Sales_Order_id'].split(',') if x.strip()))
+                threadRes = threadFunction(combined_salesorder_fetch, so_ids, region, filters, CollectedValue)
+                result_map['Sales_Order_id'] = threadRes
+                CollectedValue['sales'] = True
+
+                for salesData in threadRes:
+                    try:
+                        fill = salesData['data']['getBySalesorderids']['result'][0]['fulfillment'][0]['fulfillmentId']
+                        foid = salesData['data']['getBySalesorderids']['result'][0]['fulfillmentOrders'][0]['foId']
+                        woid = salesData['data']['getBySalesorderids']['result'][0]['workOrders'][0]['woId']
+                    except Exception as e:
+                        print(f"[ERROR] Parsing salesData: {e}")
+                        continue
+
+                    # Fulfillment
+                    try:
+                        if 'Fullfillment Id' in filters and fill in [filters['Fullfillment Id']]:
+                            threadRes = threadFunction(combined_fulfillment_fetch, [fill], region, filters, CollectedValue)
+                            result_map['Fullfillment Id'] = threadRes
+                            CollectedValue['FullFil'] = True
+                        elif 'Fullfillment Id' not in filters:
+                            threadRes = threadFunction(combined_fulfillment_fetch, [fill], region, filters, CollectedValue)
+                            result_map['Fullfillment Id'] = threadRes
+                            CollectedValue['FullFil'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Fulfillment Thread from Sales: {e}")
+
+                    # FOID
+                    try:
+                        if 'foid' in filters and foid in [filters['foid']]:
+                            threadRes = threadFunction(combined_combined_foid_fetchfulfillment_fetch, [foid], region, filters, CollectedValue)
+                            result_map['foid'] = threadRes
+                        else:
+                            threadRes = threadFunction(combined_foid_fetch, [foid], region, filters, CollectedValue)
+                            result_map['foid'] = threadRes
+                        CollectedValue['Fo'] = True
+                    except Exception as e:
+                        print(f"[ERROR] FOID Thread from Sales: {e}")
+
+                    # WOID
+                    try:
+                        if 'wo_id' in filters and woid in [filters['wo_id']]:
+                            threadRes = threadFunction(combined_woid_fetch, [woid], region, filters, CollectedValue)
+                            result_map['wo_id'] = threadRes
+                        else:
+                            threadRes = threadFunction(combined_woid_fetch, [woid], region, filters, CollectedValue)
+                            result_map['wo_id'] = threadRes
+                        CollectedValue['work'] = True
+                    except Exception as e:
+                        print(f"[ERROR] WOID Thread from Sales: {e}")
+            except Exception as e:
+                print(f"[ERROR] Sales_Order_id thread block: {e}")
+
+        # ---------- Fulfillment Block ----------
+        if 'Fullfillment Id' in primary_filters and not CollectedValue['FullFil']:
+            try:
+                fil_ids = list(set(x.strip() for x in primary_filters['Fullfillment Id'].split(',') if x.strip()))
+                threadRes = threadFunction(combined_fulfillment_fetch, fil_ids, region, filters, CollectedValue)
+                result_map['Fullfillment Id'] = threadRes
+                CollectedValue['FullFil'] = True
+
+                for fullfilData in threadRes:
+                    try:
+                        sales = fullfilData['data']['getFulfillmentsById'][0]['salesOrderId']
+                        foid = fullfilData['data']['getBySalesorderids']['result'][0]['fulfillmentOrders'][0]['foId']
+                        woid = fullfilData['data']['getBySalesorderids']['result'][0]['workOrders'][0]['woId']
+                    except Exception as e:
+                        print(f"[ERROR] Parsing fullfilData: {e}")
+                        continue
+
+                    try:
+                        if 'Sales_Order_id' not in filters or sales in [filters['Sales_Order_id']]:
+                            threadRes = threadFunction(combined_salesorder_fetch, [sales], region, filters, CollectedValue)
+                            result_map['Sales_Order_id'] = threadRes
+                            CollectedValue['sales'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Sales from Fulfillment: {e}")
+
+                    try:
+                        threadRes = threadFunction(combined_foid_fetch, [foid], region, filters, CollectedValue)
+                        result_map['foid'] = threadRes
+                        CollectedValue['Fo'] = True
+                    except Exception as e:
+                        print(f"[ERROR] FOID from Fulfillment: {e}")
+
+                    try:
+                        threadRes = threadFunction(combined_woid_fetch, [woid], region, filters, CollectedValue)
+                        result_map['wo_id'] = threadRes
+                        CollectedValue['work'] = True
+                    except Exception as e:
+                        print(f"[ERROR] WOID from Fulfillment: {e}")
+            except Exception as e:
+                print(f"[ERROR] Fulfillment thread block: {e}")
+
+        # ---------- FOID Block ----------
+        if 'foid' in primary_filters and not CollectedValue['Fo']:
+            try:
+                fo_ids = list(set(x.strip() for x in primary_filters['foid'].split(',') if x.strip()))
+                threadRes = threadFunction(combined_foid_fetch, fo_ids, region, filters, CollectedValue)
+                result_map['foid'] = threadRes
+                CollectedValue['Fo'] = True
+
+                for FOData in threadRes:
+                    try:
+                        sales = FOData['data']['getAllFulfillmentHeadersByFoId']['result'][0]['salesOrder']['salesOrderId']
+                        fill = FOData['data']['getAllFulfillmentHeadersByFoId']['result'][0]['fulfillment']['fulfillmentId']
+                        woid = FOData['data']['getAllFulfillmentHeadersByFoId']['result'][0]['workOrders'][0]['woId']
+                    except Exception as e:
+                        print(f"[ERROR] Parsing FOData: {e}")
+                        continue
+
+                    try:
+                        threadRes = threadFunction(combined_salesorder_fetch, [sales], region, filters, CollectedValue)
+                        result_map['Sales_Order_id'] = threadRes
+                        CollectedValue['sales'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Sales from FOID: {e}")
+
+                    try:
+                        threadRes = threadFunction(combined_fulfillment_fetch, [fill], region, filters, CollectedValue)
+                        result_map['Fullfillment Id'] = threadRes
+                        CollectedValue['FullFil'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Fulfillment from FOID: {e}")
+
+                    try:
+                        threadRes = threadFunction(combined_woid_fetch, [woid], region, filters, CollectedValue)
+                        result_map['wo_id'] = threadRes
+                        CollectedValue['work'] = True
+                    except Exception as e:
+                        print(f"[ERROR] WOID from FOID: {e}")
+            except Exception as e:
+                print(f"[ERROR] FOID thread block: {e}")
+
+        # ---------- WOID Block ----------
+        if 'wo_id' in primary_filters and not CollectedValue['work']:
+            try:
+                wo_ids = list(set(x.strip() for x in primary_filters['wo_id'].split(',') if x.strip()))
+                threadRes = threadFunction(combined_woid_fetch, wo_ids, region, filters, CollectedValue)
+                result_map['WOID'] = threadRes
+                CollectedValue['work'] = True
+
+                for WOData in threadRes:
+                    try:
+                        sales = WOData['data']['getByWorkorderids']['result'][0]['salesOrder']['salesOrderId']
+                        fill = WOData['data']['getByWorkorderids']['result'][0]['fulfillment']['fulfillmentId']
+                        foid = WOData['data']['getByWorkorderids']['result'][0]['fulfillmentOrders'][0]['foId']
+                    except Exception as e:
+                        print(f"[ERROR] Parsing WOData: {e}")
+                        continue
+
+                    try:
+                        threadRes = threadFunction(combined_salesorder_fetch, [sales], region, filters, CollectedValue)
+                        result_map['Sales_Order_id'] = threadRes
+                        CollectedValue['sales'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Sales from WOID: {e}")
+
+                    try:
+                        threadRes = threadFunction(combined_fulfillment_fetch, [fill], region, filters, CollectedValue)
+                        result_map['Fullfillment Id'] = threadRes
+                        CollectedValue['FullFil'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Fulfillment from WOID: {e}")
+
+                    try:
+                        threadRes = threadFunction(combined_foid_fetch, [foid], region, filters, CollectedValue)
+                        result_map['foid'] = threadRes
+                        CollectedValue['Fo'] = True
+                    except Exception as e:
+                        print(f"[ERROR] FOID from WOID: {e}")
+            except Exception as e:
+                print(f"[ERROR] WOID thread block: {e}")
+
+        return result_map
+
+    except Exception as e:
+        print(f"[FATAL ERROR] in fieldValidation: {e}")
+        return {"status": "error", "message": "Unexpected failure during validation"}
+
+def threadFunction(functionName, ids, region, filters, CollectedValue):
+    result = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(functionName, id, region, filters, CollectedValue) for id in ids]
+        for future in as_completed(futures):
+            try:
+                res = future.result()
+                if res:
+                    result.append(res)
+            except Exception as e:
+                print(f"[ERROR] Thread Function fetch failed: {e}")
+    return result
 
 def OutputFormat(result_map, format_type=None):
     try:
