@@ -1,3 +1,21 @@
+import os
+import sys
+import json
+import httpx
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from graphqlQueries import *
+
+configABSpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
+with open(configABSpath, 'r') as file:
+    configPath = json.load(file)
+
+FID     = configPath['Linkage_DAO']
+FOID    = configPath['FM_Order_DAO']
+SOPATH  = configPath['SO_Header_DAO']
+WOID    = configPath['WO_Details_DAO']
+FFBOM   = configPath['FM_BOM_DAO']
 from flask import request, jsonify
 import requests
 import httpx
@@ -7,22 +25,19 @@ import sys
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from graphqlQueries import *
-from combinationFunctions import *
+
+configABSpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
+with open(configABSpath, 'r') as file:
+    configPath = json.load(file)
 
 PRIMARY_FIELDS = {
-    "Sales_Order_id",
-    "wo_id",
-    "Fullfillment Id",
-    "foid",
-    "order_date"
+    "Sales_Order_id", "wo_id", "Fullfillment Id", "foid", "order_date"
 }
-
 SECONDARY_FIELDS = {
-    "ISMULTIPACK",
-    "BUID",
-    "Facility"
+    "ISMULTIPACK", "BUID", "Facility"
 }
 
 combined_salesorder_data  = {'data': {}}
@@ -31,42 +46,42 @@ combined_foid_data = {'data': {}}
 combined_wo_data = {'data': {}}
 
 CollectedValue = {
-    "sales":False,
-    "FullFil":False,
-    "Work" : False,
-    "Fo":False
+    "sales": False,
+    "FullFil": False,
+    "Work": False,
+    "Fo": False
 }
 
 def getPath(region):
-    if region == "EMEA":
-        path = {
-            "FID": configPath['Linkage_EMEA'],
-            "FOID": configPath['FM_Order_EMEA_APJ'],
-            "SOPATH": configPath['SO_Header_EMEA_APJ'],
-            "WOID": configPath['WO_Details_EMEA_APJ'],
-            "FFBOM": configPath['FM_BOM_EMEA_APJ']
-        }
-        return path
-    elif region == "APJ":
-        path = {
-            "FID": configPath['Linkage_APJ'],
-            "FOID": configPath['FM_Order_EMEA_APJ'],
-            "SOPATH": configPath['SO_Header_EMEA_APJ'],
-            "WOID": configPath['WO_Details_EMEA_APJ'],
-            "FFBOM": configPath['FM_BOM_EMEA_APJ']
-        }
-        return path
-    elif region == "DAO":
-        path = {
-            "FID": configPath['Linkage_DAO'],
-            "FOID": configPath['FM_Order_DAO'],
-            "SOPATH": configPath['SO_Header_DAO'],
-            "WOID": configPath['WO_Details_DAO'],
-            "FFBOM": configPath['FM_BOM_DAO']
-        }
-        return path
-    else:
-        return "Path Not Found"
+    try:
+        if region == "EMEA":
+            return {
+                "FID": configPath['Linkage_EMEA'],
+                "FOID": configPath['FM_Order_EMEA_APJ'],
+                "SOPATH": configPath['SO_Header_EMEA_APJ'],
+                "WOID": configPath['WO_Details_EMEA_APJ'],
+                "FFBOM": configPath['FM_BOM_EMEA_APJ']
+            }
+        elif region == "APJ":
+            return {
+                "FID": configPath['Linkage_APJ'],
+                "FOID": configPath['FM_Order_EMEA_APJ'],
+                "SOPATH": configPath['SO_Header_EMEA_APJ'],
+                "WOID": configPath['WO_Details_EMEA_APJ'],
+                "FFBOM": configPath['FM_BOM_EMEA_APJ']
+            }
+        elif region == "DAO":
+            return {
+                "FID": configPath['Linkage_DAO'],
+                "FOID": configPath['FM_Order_DAO'],
+                "SOPATH": configPath['SO_Header_DAO'],
+                "WOID": configPath['WO_Details_DAO'],
+                "FFBOM": configPath['FM_BOM_DAO']
+            }
+    except Exception as e:
+        print(f"[ERROR] getPath failed: {e}")
+        traceback.print_exc()
+        return {}
 
 def post_api(URL, query, variables):
     try:
@@ -76,562 +91,579 @@ def post_api(URL, query, variables):
             response = httpx.post(URL, json={"query": query}, verify=False)
         return response.json()
     except Exception as e:
-        print(f"Exception in post_api: {e}")
+        print(f"[ERROR] post_api failed: {e}")
+        traceback.print_exc()
         return {"error": str(e)}
 
-def combined_salesorder_fetch(so_id,region,filters,CollectedValue):
-    path = getPath(region)
+def combined_salesorder_fetch(so_id, region, filters, CollectedValue):
+    try:
+        path = getPath(region)
 
-    soi = {"salesorderIds": [so_id]}
-    if so_id is not None:
-        soaorder_query = fetch_soaorder_query()
-        soaorder = post_api(URL=path['SOPATH'], query=soaorder_query, variables=soi)
-        if soaorder and soaorder.get('data'):
-            combined_salesorder_data['data']['getSoheaderBySoids'] = soaorder['data'].get('getSoheaderBySoids', [])
+        soi = {"salesorderIds": [so_id]}
+        if so_id is not None:
+            soaorder_query = fetch_soaorder_query()
+            soaorder = post_api(URL=path['SOPATH'], query=soaorder_query, variables=soi)
+            if soaorder and soaorder.get('data'):
+                combined_salesorder_data['data']['getSoheaderBySoids'] = soaorder['data'].get('getSoheaderBySoids', [])
 
-        salesorder_query = fetch_salesorder_query(so_id)
-        salesorder = post_api(URL=path['FID'], query=salesorder_query, variables=None)
-        if salesorder and salesorder.get('data'):
-            combined_salesorder_data['data']['getBySalesorderids'] = salesorder['data'].get('getBySalesorderids', [])
+            salesorder_query = fetch_salesorder_query(so_id)
+            salesorder = post_api(URL=path['FID'], query=salesorder_query, variables=None)
+            if salesorder and salesorder.get('data'):
+                combined_salesorder_data['data']['getBySalesorderids'] = salesorder['data'].get('getBySalesorderids', [])
 
-    return combined_salesorder_data
+        return combined_salesorder_data
+    except Exception as e:
+        print(f"Error in combined_salesorder_fetch: {e}")
+        return {}
 
-def combined_fulfillment_fetch(fulfillment_id,region,filters,CollectedValue):
-    path = getPath(region)
-   
-    ffQid = {"fulfillment_id": fulfillment_id}
-    
-    if fulfillment_id is not None:
-        fulfillment_query = fetch_getByFulfillmentids_query(fulfillment_id)
-        
-        fulfillment_data = post_api(URL=path['FID'], query=fulfillment_query, variables=None)
-        
+def combined_fulfillment_fetch(fulfillment_id, region, filters, CollectedValue):
+    try:
+        path = getPath(region)
+        ffQid = {"fulfillment_id": fulfillment_id}
+
+        fulfillment_query = fetch_fulfillment_query()
+        fulfillment_data = post_api(URL=path['SOPATH'], query=fulfillment_query, variables=ffQid)
         if fulfillment_data and fulfillment_data.get('data'):
-            combined_fullfillment_data['data']['getByFulfillmentids'] = fulfillment_data['data'].get('getByFulfillmentids', [])
-        
+            combined_fullfillment_data['data']['getFulfillmentsById'] = fulfillment_data['data'].get('getFulfillmentsById', {})
+
+        salesOrderID = combined_fullfillment_data['data']['getFulfillmentsById'][0]['salesOrderId']
+
+        sofulfillment_query = fetch_getFulfillmentsBysofulfillmentid_query(fulfillment_id)
+        sofulfillment_data = post_api(URL=path['SOPATH'], query=sofulfillment_query, variables=ffQid)
+        if sofulfillment_data and sofulfillment_data.get('data'):
+            combined_fullfillment_data['data']['getFulfillmentsBysofulfillmentid'] = sofulfillment_data['data'].get('getFulfillmentsBysofulfillmentid', {})
+
+        directship_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(fulfillment_id)
+        directship_data = post_api(URL=path['FOID'], query=directship_query, variables=ffQid)
+        if directship_data and directship_data.get('data'):
+            combined_fullfillment_data['data']['getAllFulfillmentHeadersSoidFulfillmentid'] = directship_data['data'].get('getAllFulfillmentHeadersSoidFulfillmentid', {})
+
+        fbom_query = fetch_getFbomBySoFulfillmentid_query(fulfillment_id)
+        fbom_data = post_api(URL=path['FFBOM'], query=fbom_query, variables=ffQid)
+        if fbom_data and fbom_data.get('data'):
+            combined_fullfillment_data['data']['getFbomBySoFulfillmentid'] = fbom_data['data'].get('getFbomBySoFulfillmentid', {})
+
+        ffoid_query = fetch_salesorder_query(salesOrderID)
+        ffoidData = post_api(URL=path['FID'], query=ffoid_query, variables=None)
+        if ffoidData and ffoidData.get('data'):
+            combined_fullfillment_data['data']['getBySalesorderids'] = ffoidData['data'].get('getBySalesorderids', [])
 
         return combined_fullfillment_data
+    except Exception as e:
+        print(f"Error in combined_fulfillment_fetch: {e}")
+        return {}
 
-def combined_foid_fetch(fo_id,region,filters,CollectedValue):
-    path = getPath(region)
+def combined_foid_fetch(fo_id, region, filters, CollectedValue):
+    try:
+        path = getPath(region)
 
-    foid_query = fetch_foid_query(fo_id)
+        foid_query = fetch_foid_query(fo_id)
+        foid_output = post_api(URL=path['FOID'], query=foid_query, variables=None)
+        if foid_output and foid_output.get('data'):
+            combined_foid_data['data']['getAllFulfillmentHeadersByFoId'] = foid_output['data']['getAllFulfillmentHeadersByFoId']
 
-    foid_output = post_api(URL=path['FOID'], query=foid_query, variables=None)
-    
-    if foid_output and foid_output.get('data'):
-        combined_foid_data['data']['getAllFulfillmentHeadersByFoId'] = foid_output['data']['getAllFulfillmentHeadersByFoId']
+        fulfillment_id = combined_foid_data['data']['getAllFulfillmentHeadersByFoId'][0]['fulfillmentId']
 
-    fulfillment_id = combined_foid_data['data']['getAllFulfillmentHeadersByFoId'][0]['fulfillmentId']
+        if fulfillment_id is not None:
+            fulfillment_query = fetch_getByFulfillmentids_query(fulfillment_id)
+            fulfillment_data = post_api(URL=path['FID'], query=fulfillment_query, variables=None)
+            if fulfillment_data and fulfillment_data.get('data'):
+                combined_foid_data['data']['getAllFulfillmentHeadersByFoId'] = fulfillment_data['data'].get('getByFulfillmentids', [])
 
-    if fulfillment_id is not None:
-        fulfillment_query = fetch_getByFulfillmentids_query(fulfillment_id)
-        
-        fulfillment_data = post_api(URL=path['FID'], query=fulfillment_query, variables=None)
-        
-        if fulfillment_data and fulfillment_data.get('data'):
-            combined_foid_data['data']['getAllFulfillmentHeadersByFoId'] = fulfillment_data['data'].get('getByFulfillmentids', [])
+        return combined_foid_data
+    except Exception as e:
+        print(f"Error in combined_foid_fetch: {e}")
+        return {}
 
-    # print(json.dumps(combined_foid_data, indent=2))
-    return combined_foid_data
+def combined_woid_fetch(wo_id, region, filters, CollectedValue):
+    try:
+        path = getPath(region)
 
-def combined_woid_fetch(wo_id,region,filters,CollectedValue):
-    path = getPath(region)
+        wo_query = fetch_getByWorkorderids_query(wo_id)
+        wo_data = post_api(URL=path['FID'], query=wo_query, variables=None)
+        if wo_data and wo_data.get('data'):
+            combined_wo_data['data']['getByWorkorderids'] = wo_data['data'].get('getByWorkorderids', {})
 
-    wo_query = fetch_getByWorkorderids_query(wo_id)
-
-    wo_data = post_api(URL=path['FID'], query=wo_query, variables=None)
-    
-    if wo_data and wo_data.get('data'):
-        combined_wo_data['data']['getByWorkorderids'] = wo_data['data'].get('getByWorkorderids', {})
-
-    # print(json.dumps(combined_wo_data, indent=2))
-    return combined_wo_data
-    
-def threadFunction(functionName,ids,region,filters,CollectedValue):
-    result = []
-    with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = [executor.submit(functionName, id, region,filters,CollectedValue) for id in ids]
-            for future in as_completed(futures):                  
-                try:
-                    res = future.result()
-                    if res:
-                        result.append(res)
-                except Exception as e:
-                    print(f"Error in Thread Function fetch: {e}")
-    return result
-
+        return combined_wo_data
+    except Exception as e:
+        print(f"Error in combined_woid_fetch: {e}")
+        return {}
 def fieldValidation(filters, format_type, region):
-    
     data_row_export = {}
     primary_in_filters = []
     secondary_in_filters = []
 
-    for field in filters:
-        if field in PRIMARY_FIELDS:
-            primary_in_filters.append(field)
-        elif field in SECONDARY_FIELDS:
-            secondary_in_filters.append(field)
+    try:
+        for field in filters:
+            if field in PRIMARY_FIELDS:
+                primary_in_filters.append(field)
+            elif field in SECONDARY_FIELDS:
+                secondary_in_filters.append(field)
 
-    if not primary_in_filters:
-        return {
-            "status": "error",
-            "message": "At least one primary field is required in filters."
-        }
+        if not primary_in_filters:
+            return {
+                "status": "error",
+                "message": "At least one primary field is required in filters."
+            }
 
-    primary_filters = {key: filters[key] for key in primary_in_filters}
-    secondary_filters = {key: filters[key] for key in secondary_in_filters}
-    result_map = {}
-    
-    if 'Sales_Order_id' in primary_filters and CollectedValue['sales'] == False:
-        
-        so_ids = list(set(x.strip() for x in primary_filters['Sales_Order_id'].split(',') if x.strip()))
-       
-        threadRes = threadFunction(combined_salesorder_fetch,so_ids,region,filters,CollectedValue)
-        result_map['Sales_Order_id'] = threadRes
-        CollectedValue['sales'] = True
+        primary_filters = {key: filters[key] for key in primary_in_filters}
+        secondary_filters = {key: filters[key] for key in secondary_in_filters}
+        result_map = {}
 
-        for salesData in result_map['Sales_Order_id']:
-            fillvalidation = salesData['data']['getBySalesorderids']['result'][0]['fulfillment'][0]['fulfillmentId']
-            foidvalidation = salesData['data']['getBySalesorderids']['result'][0]['fulfillmentOrders'][0]['foId']
-            woidvalidation = salesData['data']['getBySalesorderids']['result'][0]['workOrders'][0]['woId']
-            
-            if 'Fullfillment Id' in filters:
-                if fillvalidation in [filters['Fullfillment Id']] :
-                    for value in list(filters['Fullfillment Id']):
-                        if value == fillvalidation:                            
-                            threadRes = threadFunction(combined_fulfillment_fetch,[fillvalidation],region,filters,CollectedValue)
-                            result_map['Fullfillment Id'] = threadRes  
-                            CollectedValue['FullFil'] = True                  
-                else:
-                    threadRes = threadFunction(combined_fulfillment_fetch,[fillvalidation],region,filters,CollectedValue)
-                    result_map['Fullfillment Id'] = threadRes
-                    CollectedValue['FullFil'] = True
-            else:
-                threadRes = threadFunction(combined_fulfillment_fetch,[fillvalidation],region,filters,CollectedValue)
-                result_map['Fullfillment Id'] = threadRes
-                CollectedValue['FullFil'] = True
-
-            if 'foid' in filters:
-                if foidvalidation in [filters['foid']] :
-                    for value in list(filters['foid']):
-                        if value == foidvalidation:                            
-                            threadRes = threadFunction(combined_combined_foid_fetchfulfillment_fetch,[foidvalidation],region,filters,CollectedValue)
-                            result_map['foid'] = threadRes
-                            CollectedValue['Fo'] = True                    
-                else:
-                    threadRes = threadFunction(combined_foid_fetch,[foidvalidation],region,filters,CollectedValue)
-                    result_map['foid'] = threadRes
-                    CollectedValue['Fo'] = True 
-            else:
-                threadRes = threadFunction(combined_foid_fetch,[foidvalidation],region,filters,CollectedValue)
-                result_map['foid'] = threadRes
-                CollectedValue['Fo'] = True 
-
-            if 'wo_id' in filters:
-                if woidvalidation in [filters['wo_id']] :
-                    for value in list(filters['wo_id']):
-                        if value == woidvalidation:                            
-                            threadRes = threadFunction(combined_woid_fetch,[woidvalidation],region,filters,CollectedValue)
-                            result_map['wo_id'] = threadRes 
-                            CollectedValue['work'] = True                 
-                else:
-                    threadRes = threadFunction(combined_woid_fetch,[woidvalidation],region,filters,CollectedValue)
-                    result_map['wo_id'] = threadRes
-                    CollectedValue['work'] = True
-            else:
-                threadRes = threadFunction(combined_woid_fetch,[woidvalidation],region,filters,CollectedValue)
-                result_map['wo_id'] = threadRes  
-                CollectedValue['work'] = True           
-        
-    if 'Fullfillment Id' in primary_filters and CollectedValue['FullFil'] == False:
-        
-        fil_ids = list(set(x.strip() for x in primary_filters['Fullfillment Id'].split(',') if x.strip()))
-        
-        threadRes = threadFunction(combined_fulfillment_fetch,fil_ids,region,filters,CollectedValue)
-        result_map['Fullfillment Id'] = threadRes
-
-        CollectedValue['FullFil'] = True
-        
-        for FullfilData in result_map['Fullfillment Id']:
-            salesvalidation = FullfilData['data']['getByFulfillmentids']['result'][0]['salesOrder']['salesOrderId']
-            foidvalidation = FullfilData['data']['getByFulfillmentids']['result'][0]['fulfillmentOrders'][0]['foId']
-            woidvalidation = FullfilData['data']['getByFulfillmentids']['result'][0]['workOrders'][0]['woId']
-            
-            if 'Sales_Order_id' in filters:
-                if salesvalidation in [filters['Sales_Order_id']] :
-                    for value in list(filters['Sales_Order_id']):
-                        if value == salesvalidation:                            
-                            threadRes = threadFunction(combined_salesorder_fetch,[salesvalidation],region,filters,CollectedValue)
-                            result_map['Sales_Order_id'] = threadRes  
-                            CollectedValue['sales'] = True                  
-                else:
-                    threadRes = threadFunction(combined_salesorder_fetch,[salesvalidation],region,filters,CollectedValue)
-                    result_map['Sales_Order_id'] = threadRes
-                    CollectedValue['sales'] = True
-            else:
-                threadRes = threadFunction(combined_salesorder_fetch,[salesvalidation],region,filters,CollectedValue)
+        # ---------- Sales Order Block ----------
+        if 'Sales_Order_id' in primary_filters and not CollectedValue['sales']:
+            try:
+                so_ids = list(set(x.strip() for x in primary_filters['Sales_Order_id'].split(',') if x.strip()))
+                threadRes = threadFunction(combined_salesorder_fetch, so_ids, region, filters, CollectedValue)
                 result_map['Sales_Order_id'] = threadRes
                 CollectedValue['sales'] = True
 
-            if 'foid' in filters:
-                if foidvalidation in [filters['foid']] :
-                    for value in list(filters['foid']):
-                        if value == foidvalidation:                            
-                            threadRes = threadFunction(combined_foid_fetch,[foidvalidation],region,filters,CollectedValue)
+                for salesData in threadRes:
+                    try:
+                        fill = salesData['data']['getBySalesorderids']['result'][0]['fulfillment'][0]['fulfillmentId']
+                        foid = salesData['data']['getBySalesorderids']['result'][0]['fulfillmentOrders'][0]['foId']
+                        woid = salesData['data']['getBySalesorderids']['result'][0]['workOrders'][0]['woId']
+                    except Exception as e:
+                        print(f"[ERROR] Parsing salesData: {e}")
+                        continue
+
+                    # Fulfillment
+                    try:
+                        if 'Fullfillment Id' in filters and fill in [filters['Fullfillment Id']]:
+                            threadRes = threadFunction(combined_fulfillment_fetch, [fill], region, filters, CollectedValue)
+                            result_map['Fullfillment Id'] = threadRes
+                            CollectedValue['FullFil'] = True
+                        elif 'Fullfillment Id' not in filters:
+                            threadRes = threadFunction(combined_fulfillment_fetch, [fill], region, filters, CollectedValue)
+                            result_map['Fullfillment Id'] = threadRes
+                            CollectedValue['FullFil'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Fulfillment Thread from Sales: {e}")
+
+                    # FOID
+                    try:
+                        if 'foid' in filters and foid in [filters['foid']]:
+                            threadRes = threadFunction(combined_combined_foid_fetchfulfillment_fetch, [foid], region, filters, CollectedValue)
                             result_map['foid'] = threadRes
-                            CollectedValue['Fo'] = True                    
-                else:
-                    threadRes = threadFunction(combined_foid_fetch,[foidvalidation],region,filters,CollectedValue)
-                    result_map['foid'] = threadRes
-                    CollectedValue['Fo'] = True 
-            else:
-                threadRes = threadFunction(combined_foid_fetch,[foidvalidation],region,filters,CollectedValue)
-                result_map['foid'] = threadRes
-                CollectedValue['Fo'] = True 
+                        else:
+                            threadRes = threadFunction(combined_foid_fetch, [foid], region, filters, CollectedValue)
+                            result_map['foid'] = threadRes
+                        CollectedValue['Fo'] = True
+                    except Exception as e:
+                        print(f"[ERROR] FOID Thread from Sales: {e}")
 
-            if 'wo_id' in filters:
-                if woidvalidation in [filters['wo_id']] :
-                    for value in list(filters['wo_id']):
-                        if value == woidvalidation:                            
-                            threadRes = threadFunction(combined_woid_fetch,[woidvalidation],region,filters,CollectedValue)
-                            result_map['wo_id'] = threadRes 
-                            CollectedValue['work'] = True                 
-                else:
-                    threadRes = threadFunction(combined_woid_fetch,[woidvalidation],region,filters,CollectedValue)
-                    result_map['wo_id'] = threadRes
-                    CollectedValue['work'] = True
-            else:
-                threadRes = threadFunction(combined_woid_fetch,[woidvalidation],region,filters,CollectedValue)
-                result_map['wo_id'] = threadRes  
-                CollectedValue['work'] = True         
-            
-    if 'foid' in primary_filters and CollectedValue['Fo'] == False:
-        
-        fo_ids = list(set(x.strip() for x in primary_filters['foid'].split(',') if x.strip()))
-        
-        threadRes = threadFunction(combined_foid_fetch,fo_ids,region,filters,CollectedValue)
-        result_map['foid'] = threadRes
-        CollectedValue['Fo'] = True 
-        # print(json.dumps(combined_foid_data,indent=2))
-        
-        for FOData in result_map['foid']:            
-            salesvalidation = FOData['data']['getAllFulfillmentHeadersByFoId']['result'][0]['salesOrder']['salesOrderId']
-            fillvalidation = FOData['data']['getAllFulfillmentHeadersByFoId']['result'][0]['fulfillment']['fulfillmentId']
-            woidvalidation = FOData['data']['getAllFulfillmentHeadersByFoId']['result'][0]['workOrders'][0]['woId']
-            
-            if 'Sales_Order_id' in filters:
-                if salesvalidation in [filters['Sales_Order_id']] :
-                    for value in list(filters['Sales_Order_id']):
-                        if value == salesvalidation:                            
-                            threadRes = threadFunction(combined_salesorder_fetch,[salesvalidation],region,filters,CollectedValue)
-                            result_map['Sales_Order_id'] = threadRes  
-                            CollectedValue['FullFil'] = True                  
-                else:
-                    threadRes = threadFunction(combined_salesorder_fetch,[salesvalidation],region,filters,CollectedValue)
-                    result_map['Sales_Order_id'] = threadRes
-                    CollectedValue['FullFil'] = True
-            else:
-                threadRes = threadFunction(combined_salesorder_fetch,[salesvalidation],region,filters,CollectedValue)
-                result_map['Sales_Order_id'] = threadRes
-                CollectedValue['FullFil'] = True
+                    # WOID
+                    try:
+                        if 'wo_id' in filters and woid in [filters['wo_id']]:
+                            threadRes = threadFunction(combined_woid_fetch, [woid], region, filters, CollectedValue)
+                            result_map['wo_id'] = threadRes
+                        else:
+                            threadRes = threadFunction(combined_woid_fetch, [woid], region, filters, CollectedValue)
+                            result_map['wo_id'] = threadRes
+                        CollectedValue['work'] = True
+                    except Exception as e:
+                        print(f"[ERROR] WOID Thread from Sales: {e}")
+            except Exception as e:
+                print(f"[ERROR] Sales_Order_id thread block: {e}")
 
-            if 'Fullfillment Id' in filters:
-                if fillvalidation in [filters['Fullfillment Id']] :
-                    for value in list(filters['Fullfillment Id']):
-                        if value == fillvalidation:                            
-                            threadRes = threadFunction(combined_fulfillment_fetch,[fillvalidation],region,filters,CollectedValue)
-                            result_map['Fullfillment Id'] = threadRes  
-                            CollectedValue['FullFil'] = True                  
-                else:
-                    threadRes = threadFunction(combined_fulfillment_fetch,[fillvalidation],region,filters,CollectedValue)
-                    result_map['Fullfillment Id'] = threadRes
-                    CollectedValue['FullFil'] = True
-            else:
-                threadRes = threadFunction(combined_fulfillment_fetch,[fillvalidation],region,filters,CollectedValue)
+        # ---------- Fulfillment Block ----------
+        if 'Fullfillment Id' in primary_filters and not CollectedValue['FullFil']:
+            try:
+                fil_ids = list(set(x.strip() for x in primary_filters['Fullfillment Id'].split(',') if x.strip()))
+                threadRes = threadFunction(combined_fulfillment_fetch, fil_ids, region, filters, CollectedValue)
                 result_map['Fullfillment Id'] = threadRes
                 CollectedValue['FullFil'] = True
 
-            if 'wo_id' in filters:
-                if woidvalidation in [filters['wo_id']] :
-                    for value in list(filters['wo_id']):
-                        if value == woidvalidation:                            
-                            threadRes = threadFunction(combined_woid_fetch,[woidvalidation],region,filters,CollectedValue)
-                            result_map['wo_id'] = threadRes 
-                            CollectedValue['work'] = True                 
-                else:
-                    threadRes = threadFunction(combined_woid_fetch,[woidvalidation],region,filters,CollectedValue)
-                    result_map['wo_id'] = threadRes
-                    CollectedValue['work'] = True
-            else:
-                threadRes = threadFunction(combined_woid_fetch,[woidvalidation],region,filters,CollectedValue)
-                result_map['wo_id'] = threadRes  
-                CollectedValue['work'] = True         
+                for fullfilData in threadRes:
+                    try:
+                        sales = fullfilData['data']['getFulfillmentsById'][0]['salesOrderId']
+                        foid = fullfilData['data']['getBySalesorderids']['result'][0]['fulfillmentOrders'][0]['foId']
+                        woid = fullfilData['data']['getBySalesorderids']['result'][0]['workOrders'][0]['woId']
+                    except Exception as e:
+                        print(f"[ERROR] Parsing fullfilData: {e}")
+                        continue
 
-    if 'wo_id' in primary_filters and CollectedValue['Work'] == False:
-        woids = list(set(x.strip() for x in primary_filters['wo_id'].split(',') if x.strip()))
-        
-        threadRes = threadFunction(combined_woid_fetch,woids,region,filters,CollectedValue)
-        result_map['WOID'] = threadRes
-        CollectedValue['work'] = True
-        
-        for WOData in result_map['WOID']:
-            salesvalidation = WOData['data']['getByWorkorderids']['result'][0]['salesOrder']['salesOrderId']
-            fillvalidation = WOData['data']['getByWorkorderids']['result'][0]['fulfillment']['fulfillmentId']
-            foidvalidation = WOData['data']['getByWorkorderids']['result'][0]['fulfillmentOrders'][0]['foId']
+                    try:
+                        if 'Sales_Order_id' not in filters or sales in [filters['Sales_Order_id']]:
+                            threadRes = threadFunction(combined_salesorder_fetch, [sales], region, filters, CollectedValue)
+                            result_map['Sales_Order_id'] = threadRes
+                            CollectedValue['sales'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Sales from Fulfillment: {e}")
 
-            if 'Sales_Order_id' in filters:
-                if salesvalidation in [filters['Sales_Order_id']] :
-                    for value in list(filters['Sales_Order_id']):
-                        if value == salesvalidation:                            
-                            threadRes = threadFunction(combined_salesorder_fetch,[salesvalidation],region,filters,CollectedValue)
-                            result_map['Sales_Order_id'] = threadRes  
-                            CollectedValue['FullFil'] = True                  
-                else:
-                    threadRes = threadFunction(combined_salesorder_fetch,[salesvalidation],region,filters,CollectedValue)
-                    result_map['Sales_Order_id'] = threadRes
-                    CollectedValue['FullFil'] = True
-            else:
-                threadRes = threadFunction(combined_salesorder_fetch,[salesvalidation],region,filters,CollectedValue)
-                result_map['Sales_Order_id'] = threadRes
-                CollectedValue['FullFil'] = True
+                    try:
+                        threadRes = threadFunction(combined_foid_fetch, [foid], region, filters, CollectedValue)
+                        result_map['foid'] = threadRes
+                        CollectedValue['Fo'] = True
+                    except Exception as e:
+                        print(f"[ERROR] FOID from Fulfillment: {e}")
 
-            if 'Fullfillment Id' in filters:
-                if fillvalidation in [filters['Fullfillment Id']] :
-                    for value in list(filters['Fullfillment Id']):
-                        if value == fillvalidation:                            
-                            threadRes = threadFunction(combined_fulfillment_fetch,[fillvalidation],region,filters,CollectedValue)
-                            result_map['Fullfillment Id'] = threadRes  
-                            CollectedValue['FullFil'] = True                  
-                else:
-                    threadRes = threadFunction(combined_fulfillment_fetch,[fillvalidation],region,filters,CollectedValue)
-                    result_map['Fullfillment Id'] = threadRes
-                    CollectedValue['FullFil'] = True
-            else:
-                threadRes = threadFunction(combined_fulfillment_fetch,[fillvalidation],region,filters,CollectedValue)
-                result_map['Fullfillment Id'] = threadRes
-                CollectedValue['FullFil'] = True
+                    try:
+                        threadRes = threadFunction(combined_woid_fetch, [woid], region, filters, CollectedValue)
+                        result_map['wo_id'] = threadRes
+                        CollectedValue['work'] = True
+                    except Exception as e:
+                        print(f"[ERROR] WOID from Fulfillment: {e}")
+            except Exception as e:
+                print(f"[ERROR] Fulfillment thread block: {e}")
 
-            if 'foid' in filters:
-                if foidvalidation in [filters['foid']] :
-                    for value in list(filters['foid']):
-                        if value == foidvalidation:                            
-                            threadRes = threadFunction(combined_foid_fetch,[foidvalidation],region,filters,CollectedValue)
-                            result_map['foid'] = threadRes
-                            CollectedValue['Fo'] = True                    
-                else:
-                    threadRes = threadFunction(combined_foid_fetch,[foidvalidation],region,filters,CollectedValue)
-                    result_map['foid'] = threadRes
-                    CollectedValue['Fo'] = True 
-            else:
-                threadRes = threadFunction(combined_foid_fetch,[foidvalidation],region,filters,CollectedValue)
+        # ---------- FOID Block ----------
+        if 'foid' in primary_filters and not CollectedValue['Fo']:
+            try:
+                fo_ids = list(set(x.strip() for x in primary_filters['foid'].split(',') if x.strip()))
+                threadRes = threadFunction(combined_foid_fetch, fo_ids, region, filters, CollectedValue)
                 result_map['foid'] = threadRes
-                CollectedValue['Fo'] = True 
+                CollectedValue['Fo'] = True
 
-    DataFormatation = OutputFormat(result_map,format_type=None)
-    # print(json.dumps(DataFormatation, indent=2))
-    return result_map
+                for FOData in threadRes:
+                    try:
+                        sales = FOData['data']['getAllFulfillmentHeadersByFoId']['result'][0]['salesOrder']['salesOrderId']
+                        fill = FOData['data']['getAllFulfillmentHeadersByFoId']['result'][0]['fulfillment']['fulfillmentId']
+                        woid = FOData['data']['getAllFulfillmentHeadersByFoId']['result'][0]['workOrders'][0]['woId']
+                    except Exception as e:
+                        print(f"[ERROR] Parsing FOData: {e}")
+                        continue
+
+                    try:
+                        threadRes = threadFunction(combined_salesorder_fetch, [sales], region, filters, CollectedValue)
+                        result_map['Sales_Order_id'] = threadRes
+                        CollectedValue['sales'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Sales from FOID: {e}")
+
+                    try:
+                        threadRes = threadFunction(combined_fulfillment_fetch, [fill], region, filters, CollectedValue)
+                        result_map['Fullfillment Id'] = threadRes
+                        CollectedValue['FullFil'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Fulfillment from FOID: {e}")
+
+                    try:
+                        threadRes = threadFunction(combined_woid_fetch, [woid], region, filters, CollectedValue)
+                        result_map['wo_id'] = threadRes
+                        CollectedValue['work'] = True
+                    except Exception as e:
+                        print(f"[ERROR] WOID from FOID: {e}")
+            except Exception as e:
+                print(f"[ERROR] FOID thread block: {e}")
+
+        # ---------- WOID Block ----------
+        if 'wo_id' in primary_filters and not CollectedValue['work']:
+            try:
+                wo_ids = list(set(x.strip() for x in primary_filters['wo_id'].split(',') if x.strip()))
+                threadRes = threadFunction(combined_woid_fetch, wo_ids, region, filters, CollectedValue)
+                result_map['WOID'] = threadRes
+                CollectedValue['work'] = True
+
+                for WOData in threadRes:
+                    try:
+                        sales = WOData['data']['getByWorkorderids']['result'][0]['salesOrder']['salesOrderId']
+                        fill = WOData['data']['getByWorkorderids']['result'][0]['fulfillment']['fulfillmentId']
+                        foid = WOData['data']['getByWorkorderids']['result'][0]['fulfillmentOrders'][0]['foId']
+                    except Exception as e:
+                        print(f"[ERROR] Parsing WOData: {e}")
+                        continue
+
+                    try:
+                        threadRes = threadFunction(combined_salesorder_fetch, [sales], region, filters, CollectedValue)
+                        result_map['Sales_Order_id'] = threadRes
+                        CollectedValue['sales'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Sales from WOID: {e}")
+
+                    try:
+                        threadRes = threadFunction(combined_fulfillment_fetch, [fill], region, filters, CollectedValue)
+                        result_map['Fullfillment Id'] = threadRes
+                        CollectedValue['FullFil'] = True
+                    except Exception as e:
+                        print(f"[ERROR] Fulfillment from WOID: {e}")
+
+                    try:
+                        threadRes = threadFunction(combined_foid_fetch, [foid], region, filters, CollectedValue)
+                        result_map['foid'] = threadRes
+                        CollectedValue['Fo'] = True
+                    except Exception as e:
+                        print(f"[ERROR] FOID from WOID: {e}")
+            except Exception as e:
+                print(f"[ERROR] WOID thread block: {e}")
+
+        return result_map
+
+    except Exception as e:
+        print(f"[FATAL ERROR] in fieldValidation: {e}")
+        return {"status": "error", "message": "Unexpected failure during validation"}
+
+def threadFunction(functionName, ids, region, filters, CollectedValue):
+    result = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(functionName, id, region, filters, CollectedValue) for id in ids]
+        for future in as_completed(futures):
+            try:
+                res = future.result()
+                if res:
+                    result.append(res)
+            except Exception as e:
+                print(f"[ERROR] Thread Function fetch failed: {e}")
+    return result
 
 def OutputFormat(result_map, format_type=None):
+    try:
+        flat_list = []
+        sales_orders = result_map.get("Sales_Order_id", [])
+        fulfillments = result_map.get("Fullfillment Id", [])
+        wo_ids = result_map.get("wo_id", [])
+        foid_data = result_map.get("foid", [])
 
-    flat_list = []
+        for so_index, so_entry in enumerate(sales_orders):
+            try:
+                if not isinstance(so_entry, dict):
+                    continue
+                so_data = so_entry.get("data", {})
+                get_soheaders = so_data.get("getSoheaderBySoids", [])
+                get_salesorders = so_data.get("getBySalesorderids", {})
 
-    sales_orders = result_map.get("Sales_Order_id", [])    
-    fulfillments = result_map.get("Fullfillment Id", [])
-    wo_ids = result_map.get("wo_id", [])
-    foid_data = result_map.get("foid", [])
-   
-    for so_index, so_entry in enumerate(sales_orders):
-        try:
-            if not isinstance(so_entry, dict):
-                print(f"[WARN] sales_orders[{so_index}] is not a dict.")
-                continue
-
-            so_data = so_entry.get("data", {})
-            get_soheaders = so_data.get("getSoheaderBySoids", [])
-            get_salesorders = so_data.get("getBySalesorderids", [])
-
-            if not get_soheaders or not get_salesorders:
-                print(f"[WARN] Missing SO headers or sales orders at row {so_index}")
-                continue
-
-            soheader = get_soheaders[0] if isinstance(get_soheaders, list) else {}
-            salesorder = get_salesorders[0] if isinstance(get_salesorders, list) else {}
-
-            fulfillment = {}
-            sofulfillment = {}
-            forderline = {}
-            address = {}
-           
-            if so_index < len(fulfillments):
-                fulfillment_entry = fulfillments[so_index]
-                if isinstance(fulfillment_entry, dict):
-                    fulfillment_data = fulfillment_entry.get("data", {})
-                    f_raw = fulfillment_data.get("getFulfillmentsById")
-                    s_raw = fulfillment_data.get("getFulfillmentsBysofulfillmentid")
-
-                    # Handle if 'getFulfillmentsById' is a list
-                    if isinstance(f_raw, list):
-                        fulfillment = f_raw[0] if f_raw else {}
-                    elif isinstance(f_raw, dict):
-                        fulfillment = f_raw
-
-                    if isinstance(s_raw, list):
-                        sofulfillment = s_raw[0] if s_raw else {}
-                    elif isinstance(s_raw, dict):
-                        sofulfillment = s_raw
-
-                    forderline = (fulfillment.get("salesOrderLines") or [{}])[0]
-                    address = (sofulfillment.get("address") or [{}])[0]
-
-            if so_index < len(wo_ids):
-                wo_data = wo_ids[so_index]
-                if isinstance(wo_data, str):
-                    wo_data = json.loads(wo_data)
-            else:
-                wo_data = []
-
-            foid_entry = None
-            if foid_data and isinstance(foid_data, dict):
-                foid_entry = foid_data.get("data", {}).get("getAllFulfillmentHeadersByFoId", [{}])[0]
-
-            data_row_export = {
-                "BUID": soheader.get("buid"),
-                "PP Date": soheader.get("ppDate"),
-                "Sales Order Id": soheader.get("salesOrderId"),
-                "Fulfillment Id": fulfillment.get("fulfillmentId"),
-                "Region Code": salesorder.get("region"),
-                "FoId": foid_entry.get("foId") if foid_entry else None,
-                "System Qty": fulfillment.get("systemQty"),
-                "Ship By Date": fulfillment.get("shipByDate"),
-                "LOB": forderline.get("lob"),
-                "Ship From Facility": forderline.get("shipFromFacility"),
-                "Ship To Facility": forderline.get("shipToFacility"),
-                "Tax Regstrn Num": address.get("taxRegstrnNum"),
-                "Address Line1": address.get("addressLine1"),
-                "Postal Code": address.get("postalCode"),
-                "State Code": address.get("stateCode"),
-                "City Code": address.get("cityCode"),
-                "Customer Num": address.get("customerNum"),
-                "Customer Name Ext": address.get("customerNameExt"),
-                "Country": address.get("country"),
-                "Create Date": address.get("createDate"),
-                "Ship Code": sofulfillment.get("shipCode"),
-                "Must Arrive By Date": sofulfillment.get("mustArriveByDate"),
-                "Update Date": sofulfillment.get("updateDate"),
-                "Merge Type": sofulfillment.get("mergeType"),
-                "Manifest Date": sofulfillment.get("manifestDate"),
-                "Revised Delivery Date": sofulfillment.get("revisedDeliveryDate"),
-                "Delivery City": sofulfillment.get("deliveryCity"),
-                "Source System Id": sofulfillment.get("sourceSystemId"),
-                "IsDirect Ship": sofulfillment.get("isDirectShip"),
-                "SSC": sofulfillment.get("ssc"),
-                "OIC Id": sofulfillment.get("oicId"),
-                "Order Date": soheader.get("orderDate"),
-                "wo_ids": wo_ids,
-            }
-
-            base = {k: v for k, v in data_row_export.items() if k != "wo_ids"}
-
-            for wo in wo_data:
-                if isinstance(wo, str):
-                    try:
-                        wo = json.loads(wo)
-                    except:
-                        continue
-                if not isinstance(wo, dict):
+                if not get_soheaders or not get_salesorders:
                     continue
 
-                sn_numbers = wo.get("SN Number", [])
-                wo_clean = {k: v for k, v in wo.items() if k != "SN Number"}
+                soheader = get_soheaders[0] if isinstance(get_soheaders, list) else {}
+                salesorder = get_salesorders.get("result", [{}])[0]
 
-                if sn_numbers and isinstance(sn_numbers, list):
-                    for sn in sn_numbers:
-                        row = {**base, **wo_clean, "SN Number": sn}
-                        flat_list.append(row)
-                else:
-                    row = {**base, **wo_clean, "SN Number": None}
-                    flat_list.append(row)
+                fulfillment, sofulfillment = {}, {}
+                if so_index < len(fulfillments):
+                    fulfillment_entry = fulfillments[so_index]
+                    if isinstance(fulfillment_entry, dict):
+                        fulfillment_data = fulfillment_entry.get("data", {})
+                        f_raw = fulfillment_data.get("getFulfillmentsById", [])
+                        s_raw = fulfillment_data.get("getFulfillmentsBysofulfillmentid", [])
+                        fulfillment = f_raw[0] if f_raw else {}
+                        sofulfillment = s_raw[0] if s_raw else {}
 
-        except Exception as e:
-            print(f"[ERROR] formatting row {so_index}: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
-    print(flat_list)
-    exit()
-    if format_type == "export":
-        return flat_list
+                base_row = {
+                    "BUID": soheader.get("buid"),
+                    "PP Date": soheader.get("ppDate"),
+                    "Sales Order Id": soheader.get("salesOrderId"),
+                    "Fulfillment Id": salesorder['fulfillment'][0]['fulfillmentId'] if salesorder.get('fulfillment') else "",
+                    "Region Code": salesorder.get('salesOrder', {}).get('region', ""),
+                    "FoId": salesorder['fulfillmentOrders'][0]['foId'] if salesorder.get('fulfillmentOrders') else "",
+                    "System Qty": fulfillment.get('fulfillments', [{}])[0].get('systemQty', ""),
+                    "Ship By Date": fulfillment.get('fulfillments', [{}])[0].get('shipByDate', ""),
+                    "LOB": fulfillment.get('fulfillments', [{}])[0].get('salesOrderLines', [{}])[0].get('lob', ""),
+                    "Ship From Facility": "",
+                    "Ship To Facility": "",
+                    "Tax Regstrn Num": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('taxRegstrnNum', ""),
+                    "Address Line1": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('addressLine1', ""),
+                    "Postal Code": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('postalCode', ""),
+                    "State Code": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('stateCode', ""),
+                    "City Code": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('cityCode', ""),
+                    "Customer Num": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('customerNum', ""),
+                    "Customer Name Ext": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('customerNameExt', ""),
+                    "Country": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('country', ""),
+                    "Create Date": sofulfillment.get('fulfillments', [{}])[0].get('address', [{}])[0].get('createDate', ""),
+                    "Ship Code": sofulfillment.get('fulfillments', [{}])[0].get("shipCode", ""),
+                    "Must Arrive By Date": sofulfillment.get('fulfillments', [{}])[0].get("mustArriveByDate", ""),
+                    "Update Date": sofulfillment.get('fulfillments', [{}])[0].get("updateDate", ""),
+                    "Merge Type": sofulfillment.get('fulfillments', [{}])[0].get("mergeType", ""),
+                    "Manifest Date": sofulfillment.get('fulfillments', [{}])[0].get("manifestDate", ""),
+                    "Revised Delivery Date": sofulfillment.get('fulfillments', [{}])[0].get("revisedDeliveryDate", ""),
+                    "Delivery City": sofulfillment.get('fulfillments', [{}])[0].get("deliveryCity", ""),
+                    "Source System Id": sofulfillment.get("sourceSystemId", ""),
+                    "IsDirect Ship": "",
+                    "SSC": "",
+                    "OIC Id": sofulfillment.get('fulfillments', [{}])[0].get("oicId", ""),
+                    "Order Date": soheader.get("orderDate", "")
+                }
+                flat_list.append(base_row)
+            except Exception as inner_e:
+                print(f"[ERROR] OutputFormat inner loop at index {so_index}: {inner_e}")
+                traceback.print_exc()
+                continue
 
-    elif format_type == "grid":
-        desired_order = [
-            'BUID','PP Date','Sales Order Id','Fulfillment Id','Region Code','FoId','System Qty','Ship By Date',
-            'LOB','Ship From Facility','Ship To Facility','Tax Regstrn Num','Address Line1','Postal Code','State Code',
-            'City Code','Customer Num','Customer Name Ext','Country','Create Date','Ship Code','Must Arrive By Date',
-            'Update Date','Merge Type','Manifest Date','Revised Delivery Date','Delivery City','Source System Id','IsDirect Ship',
-            'SSC','Vendor Work Order Num','Channel Status Code','Ismultipack','Ship Mode','Is Otm Enabled',
-            'SN Number','OIC Id', 'Order Date'
-        ]
-        rows = []
-        for item in flat_list:
-            row = {
-                "columns": [{"value": item.get(key, "")} for key in desired_order]
-            }
-            rows.append(row)
+        if format_type == "export":
+            return flat_list
 
-        return rows
+        elif format_type == "grid":
+            desired_order = [
+                'BUID','PP Date','Sales Order Id','Fulfillment Id','Region Code','FoId','System Qty','Ship By Date',
+                'LOB','Ship From Facility','Ship To Facility','Tax Regstrn Num','Address Line1','Postal Code','State Code',
+                'City Code','Customer Num','Customer Name Ext','Country','Create Date','Ship Code','Must Arrive By Date',
+                'Update Date','Merge Type','Manifest Date','Revised Delivery Date','Delivery City','Source System Id','IsDirect Ship',
+                'SSC','Vendor Work Order Num','Channel Status Code','Ismultipack','Ship Mode','Is Otm Enabled',
+                'SN Number','OIC Id', 'Order Date'
+            ]
+            return [{"columns": [{"value": item.get(k, "")} for k in desired_order]} for item in flat_list]
 
-    else:
         return {"error": "Format type must be either 'grid' or 'export'"}
-               
+    except Exception as e:
+        print(f"[ERROR] OutputFormat failed: {e}")
+        traceback.print_exc()
+        return {"error": str(e)}
 
-    # flat_out=json.dumps(flat_list, indent=2)
-    print(json.dumps(flat_list, indent=2))
-    exit()
-    if format_type and format_type=="export":
-        # export_output = json.dumps(flat_list)
-        return flat_list
-    elif format_type and format_type=="grid":
-        desired_order = ['BUID','PP Date','Sales Order Id','Fulfillment Id','Region Code','FoId','System Qty','Ship By Date',
-                          'LOB','Ship From Facility','Ship To Facility','TaxRegstrn Num','Address Line1','Postal Code','State Code',
-                          'City Code','Customer Num','Customer Name Ext','Country','Create Date','Ship Code','Must Arrive By Date',
-                          'Update Date','Merge Type','Manifest Date','Revised Delivery Date','Delivery City','Source System Id','IsDirect Ship',
-                          'SSC','Vendor Work Order Num','Channel Status Code','Ismultipack','Ship Mode','Is Otm Enabled',
-                          'SN Number','OIC ID', 'Order Date']
-        rows = []
-        for item in flat_list:
-            reordered_values = [item.get(key) for key in desired_order]
+# You can similarly wrap `fieldValidation` and other main endpoints if used inside a Flask route
 
-            row = {
-                "columns": [{"value": val if val is not None else ""} for val in reordered_values]
-            }
-
-            rows.append(row)
-        return rows
-        
+def post_api(URL, query, variables):
+    if variables:
+        response = httpx.post(URL, json={"query": query, "variables": variables}, verify=False)
     else:
-        print("Format type is not part of grid/export")
-        out={"error": "Format type is not part of grid/export"}
-        return out
+        response = httpx.post(URL, json={"query": query}, verify=False)
+    return response.json()
 
+def fetch_combination_data(filters):
+    combined_data = {'data': {}}
+
+    so_id = filters.get("Sales_Order_id")
+    foid = filters.get("foid")
+    fulfillment_id = filters.get("Fullfillment_Id")
+    wo_id = filters.get("wo_id")
+
+    if not so_id:
+        return {"error": "Sales_Order_id is required"}
+
+    variables = {"salesorderIds": [so_id]}
+    soaorder_query = fetch_soaorder_query()
+    soaorder = post_api(URL=SOPATH, query=soaorder_query, variables=variables)
+    if soaorder and soaorder.get('data'):
+        combined_data['data']['getSoheaderBySoids'] = soaorder['data']['getSoheaderBySoids']
+
+    salesorder_query = fetch_salesorder_query(so_id)
+    salesorder = post_api(URL=FID, query=salesorder_query, variables=None)
+    if salesorder and salesorder.get('data'):
+        combined_data['data']['getBySalesorderids'] = salesorder['data']['getBySalesorderids']
+
+    result = combined_data['data']['getBySalesorderids']['result'][0]
+    soheader = combined_data['data']['getSoheaderBySoids'][0]
+    fulfillment = {}
+    getFulfillmentsByso = {}
+    forderline = {}
+    sourceSystemId = ""
+    isDirectShip = False
+    ssc = ""
+
+    if fulfillment_id:
+        fulfillment_query = fetch_fulfillment_query()
+        fulfillments = post_api(URL=SOPATH, query=fulfillment_query, variables={"fulfillment_id": fulfillment_id})
+        if fulfillments.get("data"):
+            fulfillment = fulfillments["data"]["getFulfillmentsById"][0]["fulfillments"][0]
+            combined_data['data']['getFulfillmentsById'] = fulfillments['data']['getFulfillmentsById']
+
+        getFulfillmentsByso_query = fetch_getFulfillmentsBysofulfillmentid_query(fulfillment_id)
+        sofulfillments = post_api(URL=SOPATH, query=getFulfillmentsByso_query, variables=None)
+        if sofulfillments.get("data"):
+            getFulfillmentsByso = sofulfillments["data"]["getFulfillmentsBysofulfillmentid"][0]
+            sourceSystemId = getFulfillmentsByso.get("sourceSystemId", "")
+            combined_data['data']['getFulfillmentsBysofulfillmentid'] = getFulfillmentsByso
+
+        getAllFulfillmentHeaders_query = fetch_getAllFulfillmentHeadersSoidFulfillmentid_query(fulfillment_id)
+        fulfillment_headers = post_api(URL=FOID, query=getAllFulfillmentHeaders_query, variables=None)
+        if fulfillment_headers.get("data"):
+            isDirectShip = fulfillment_headers['data']['getAllFulfillmentHeadersSoidFulfillmentid'][0]['isDirectShip']
+
+        getFbom_query = fetch_getFbomBySoFulfillmentid_query(fulfillment_id)
+        fbom = post_api(URL=FFBOM, query=getFbom_query, variables=None)
+        if fbom.get("data"):
+            ssc = fbom["data"]["getFbomBySoFulfillmentid"][0]["ssc"]
+
+    if foid:
+        foid_query = fetch_foid_query(foid)
+        foid_output = post_api(URL=FOID, query=foid_query, variables=None)
+        if foid_output.get("data"):
+            forderline = foid_output["data"]["getAllFulfillmentHeadersByFoId"][0]["forderline"][0]
+
+    base_row = {
+        "BUID": soheader.get("buid"),
+        "PP Date": soheader.get("ppDate"),
+        "Sales Order Id": result["salesOrder"].get("salesOrderId"),
+        "Fulfillment Id": fulfillment_id,
+        "Region Code": result["salesOrder"].get("region"),
+        "FoId": foid,
+        "System Qty": fulfillment.get("systemQty"),
+        "Ship By Date": fulfillment.get("shipByDate"),
+        "LOB": fulfillment.get("salesOrderLines", [{}])[0].get("lob"),
+        "Ship From Facility": forderline.get("shipFromFacility"),
+        "Ship To Facility": forderline.get("shipToFacility"),
+        "Tax Regstrn Num": getFulfillmentsByso.get("address", [{}])[0].get("taxRegstrnNum"),
+        "Address Line1": getFulfillmentsByso.get("address", [{}])[0].get("addressLine1"),
+        "Postal Code": getFulfillmentsByso.get("address", [{}])[0].get("postalCode"),
+        "State Code": getFulfillmentsByso.get("address", [{}])[0].get("stateCode"),
+        "City Code": getFulfillmentsByso.get("address", [{}])[0].get("cityCode"),
+        "Customer Num": getFulfillmentsByso.get("address", [{}])[0].get("customerNum"),
+        "Customer Name Ext": getFulfillmentsByso.get("address", [{}])[0].get("customerNameExt"),
+        "Country": getFulfillmentsByso.get("address", [{}])[0].get("country"),
+        "Create Date": getFulfillmentsByso.get("address", [{}])[0].get("createDate"),
+        "Ship Code": getFulfillmentsByso.get("shipCode"),
+        "Must Arrive By Date": getFulfillmentsByso.get("mustArriveByDate"),
+        "Update Date": getFulfillmentsByso.get("updateDate"),
+        "Merge Type": getFulfillmentsByso.get("mergeType"),
+        "Manifest Date": getFulfillmentsByso.get("manifestDate"),
+        "Revised Delivery Date": getFulfillmentsByso.get("revisedDeliveryDate"),
+        "Delivery City": getFulfillmentsByso.get("deliveryCity"),
+        "Source System Id": sourceSystemId,
+        "IsDirect Ship": isDirectShip,
+        "SSC": ssc,
+        "OIC Id": getFulfillmentsByso.get("oicId"),
+        "Order Date": soheader.get("orderDate"),
+        "Work Order Id": wo_id,
+        "Sales Order Ref": filters.get("Sales_order_ref"),
+        "Order Create Date": filters.get("Order_create_date"),
+        "Ismultipack": filters.get("ISMULTIPACK"),
+        "Facility": filters.get("Facility"),
+        "Manifest ID": filters.get("Manifest_ID")
+    }
+
+    return base_row
+
+def fetch_multiple_combination_data(filters_list,region,format_type):
+    results = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(fetch_combination_data, f) for f in filters_list]
+        for future in as_completed(futures):
+            try:
+                res = future.result()
+                results.append(res)
+            except Exception as e:
+                results.append({"error": str(e)})
+
+    total_output = [{k: ("" if v is None else v) for k, v in item.items()} for item in results]
+
+    # Format response
+    if format_type == "export":
+        print(json.dumps(total_output, indent=2))
+        return json.dumps(total_output)
+    elif format_type == "grid":
+        table_grid_output = tablestructural(data=total_output,IsPrimary=region)
+        print(json.dumps(table_grid_output, indent=2))
+        return json.dumps(table_grid_output)
+    else:
+        # print("Format type is not part of grid/export")
+        return {"error": "Format type is not part of grid/export"}
+    # return results
+
+def flatten_table(data_rows):
+    table_structure = {
+        "columns": [{"value": key} for key in data_rows[0].keys()],
+        "data": data_rows
+    }
+    return table_structure
 
 if __name__ == "__main__":
     region = "DAO"
     format_type = 'export'
-    filters = {
-        # "Sales_Order_id": "1004543337,483713,416695",
-        # "Sales_Order_id": "8040047674",
-        "foid": "7329527909391728641",
-        # "Fullfillment Id": "543376,532626",
-        # "wo_id": "7329527968633573377",
-        # "Sales_order_ref": "7331634580634656768",
-        # "Order_create_date": "2025-07-15",
-        # "ISMULTIPACK": "Yes",
-        # "BUID": "202",
-        # "Facility": "WH_BANGALORE",
-        # "Manifest_ID": "MANI0001",
-        # "order_date": "2025-07-15"
-    }
-   
-    result = fieldValidation(filters=filters, format_type=format_type, region=region)
-    # print(json.dumps(result, indent=2))
+    sample_filters = [
+        {
+            "Sales_Order_id": "1004543337",
+            "foid": "FO999999",
+            "Fullfillment_Id": "262135",
+            "wo_id": "7360928459",
+            "Sales_order_ref": "REF123456",
+            "Order_create_date": "2025-07-15",
+            "ISMULTIPACK": "Yes",
+            "BUID": "202",
+            "Facility": "WH_BANGALORE",
+            "Manifest_ID": "MANI0001"
+        }
+    ]
+
+    output = fetch_multiple_combination_data(sample_filters,region,format_type)
+    flat_table = flatten_table(output)
+
+    import json
+    print(json.dumps(flat_table, indent=2))
