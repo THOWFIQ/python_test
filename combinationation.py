@@ -699,4 +699,13 @@ if __name__ == "__main__":
      ('Order_from_date' in primary_filters and 'Order_to_date' in primary_filters)) and
     not any(k in primary_filters for k in ['Sales_Order_id', 'Fullfillment Id', 'foid', 'wo_id'])
 ):
+#if 'Order_from_date' in primary_filters and 'Order_to_date' in primary_filters:
+            print("Date filters are present.")
+            if not any(k in primary_filters for k in ['Sales_Order_id', 'Fullfillment Id', 'foid', 'wo_id']):
+                print("I'm Order Date Part")
+            else:
+                print("One of the exclusion keys is present.")
+        else:
+            print("Date filters are missing.")
+
 
