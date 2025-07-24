@@ -687,4 +687,11 @@ if __name__ == "__main__":
     # print(json.dumps(flat_table,indent=2))
 
 #if 'wo_id' in primary_filters and not any(k in primary_filters for k in ['Sales_Order_id', 'Fullfillment Id', 'foid']):
+#if 'Order_create_date' in primary_filters or 
+            'Order_from_date' in primary_filters and 
+            'Order_to_date' in primary_filters and 
+            'Sales_Order_id' not in primary_filters and 
+            'Fullfillment Id' not in primary_filters and 
+            'foid' not in primary_filters and 
+            'wo_id' not in primary_filters:
 
