@@ -1,129 +1,77 @@
-def OutputFormat(result_map, format_type=None):
-    flat_list = []
+if (
+            'Order_from_date' in primary_filters and
+            'Order_to_date' in primary_filters and
+            not any(k in primary_filters for k in ['Sales_Order_id', 'Fullfillment Id', 'foid', 'wo_id'])
+        ):
+            print("I'm Order Date Part")
 
-    sales_orders = result_map.get("Sales_Order_id", [])
-    fulfillments = result_map.get("Fullfillment Id", [])
-    wo_ids = result_map.get("wo_id", [])
-    foid_data = result_map.get("foid", [])
+            from_date = primary_filters.get('Order_from_date')
+            to_date = primary_filters.get('Order_to_date')
 
-    for so_index, so_entry in enumerate(sales_orders):
-        try:
-            if not isinstance(so_entry, dict):
-                print(f"[ERROR] so_entry at index {so_index} is not a dict: {so_entry}")
-                continue
+            # Fetch sales order IDs by date
+            OrderDate_Response = combined_OrderDate_fetch(from_date, to_date, region, filters)
+            resultData = OrderDate_Response.get('data', {}).get('getOrdersByDate', {}).get('result', [])
+            SalesOrderIDs = [item.get('salesOrderId') for item in resultData if item.get('salesOrderId')]
 
-            so_data = so_entry.get("data", {})
-            get_soheaders = so_data.get("getSoheaderBySoids", [])
-            get_salesorders = so_data.get("getBySalesorderids", [])
+            print("Total Sales Order IDs:", len(SalesOrderIDs))
 
-            if not get_soheaders or not get_salesorders:
-                print(f"[WARN] Missing SO headers or sales orders at row {so_index}")
-                continue
+            # Async fetch all sales order data in batches
+            all_data = asyncio.run(run_async_batches(combined_salesorder_fetch, SalesOrderIDs, region, filters))
+            result_map['Sales_Order_id'] = all_data
 
-            soheader = get_soheaders[0]
-            salesorder = get_salesorders[0]
+            for salesData in all_data:
+                try:
+                    result = salesData.get('data', {}).get('getBySalesorderids', {}).get('result', [])
+                    if not result:
+                        print("No result found.")
+                        continue
 
-            # Fulfillment-related data
-            fulfillment = {}
-            sofulfillment = {}
-            forderline = {}
-            address = {}
+                    first_result = result[0]
+                    sales_order_id = first_result.get('salesOrder', {}).get('salesOrderId')
 
-            if so_index < len(fulfillments):
-                fulfillment_data = fulfillments[so_index].get("data", {})
-                fulfillment = fulfillment_data.get("getFulfillmentsById", {}) or {}
-                sofulfillment = fulfillment_data.get("getFulfillmentsBysofulfillmentid", {}) or {}
-                forderline = (fulfillment.get("salesOrderLines") or [{}])[0]
-                address = (sofulfillment.get("address") or [{}])[0]
-            else:
-                print(f"[WARN] Fulfillment data missing at index {so_index}")
+                    fulfillment = first_result.get('fulfillment', [])
+                    fill = fulfillment[0].get('fulfillmentId') if fulfillment else None
 
-            # Work Order data
-            wo_data = wo_ids[so_index] if so_index < len(wo_ids) else []
+                    fulfillment_orders = first_result.get('fulfillmentOrders', [])
+                    foid = fulfillment_orders[0].get('foId') if fulfillment_orders else None
 
-            # FOID data
-            foid_entry = None
-            if foid_data and isinstance(foid_data[0], dict):
-                foid_entry = foid_data[0].get("data", {}).get("getAllFulfillmentHeadersByFoId", [{}])[0]
+                    work_orders = first_result.get('workOrders', [])
+                    if not work_orders:
+                        print(f"Skipping Sales Order {sales_order_id} due to missing workOrders.")
+                        continue
 
-            data_row_export = {
-                "BUID": soheader.get("buid"),
-                "PP Date": soheader.get("ppDate"),
-                "Sales Order Id": salesorder.get("salesOrderId"),
-                "Fulfillment Id": fulfillment.get("fulfillmentId"),
-                "Region Code": salesorder.get("region"),
-                "FoId": foid_entry.get("foId") if foid_entry else None,
-                "System Qty": fulfillment.get("systemQty"),
-                "Ship By Date": fulfillment.get("shipByDate"),
-                "LOB": forderline.get("lob"),
-                "Ship From Facility": forderline.get("shipFromFacility"),
-                "Ship To Facility": forderline.get("shipToFacility"),
-                "Tax Regstrn Num": address.get("taxRegstrnNum"),
-                "Address Line1": address.get("addressLine1"),
-                "Postal Code": address.get("postalCode"),
-                "State Code": address.get("stateCode"),
-                "City Code": address.get("cityCode"),
-                "Customer Num": address.get("customerNum"),
-                "Customer Name Ext": address.get("customerNameExt"),
-                "Country": address.get("country"),
-                "Create Date": address.get("createDate"),
-                "Ship Code": sofulfillment.get("shipCode"),
-                "Must Arrive By Date": sofulfillment.get("mustArriveByDate"),
-                "Update Date": sofulfillment.get("updateDate"),
-                "Merge Type": sofulfillment.get("mergeType"),
-                "Manifest Date": sofulfillment.get("manifestDate"),
-                "Revised Delivery Date": sofulfillment.get("revisedDeliveryDate"),
-                "Delivery City": sofulfillment.get("deliveryCity"),
-                "Source System Id": sofulfillment.get("sourceSystemId"),
-                "IsDirect Ship": sofulfillment.get("isDirectShip"),
-                "SSC": sofulfillment.get("ssc"),
-                "OIC Id": sofulfillment.get("oicId"),
-                "Order Date": soheader.get("orderDate"),
-                "wo_ids": wo_data,
-            }
+                    woid = work_orders[0].get('woId')
+                    print(f"Sales Order: {sales_order_id} | Fulfillment ID: {fill} | FO ID: {foid} | WO ID: {woid}")
 
-            # Flatten rows per WO
-            base = {k: v for k, v in data_row_export.items() if k != "wo_ids"}
+                    # Fulfillment
+                    if fill and ('Fullfillment Id' not in filters or fill == filters.get('Fullfillment Id')):
+                        try:
+                            threadRes = threadFunction(combined_fulfillment_fetch, [fill], format_type, region, filters)
+                            result_map['Fullfillment Id'] = threadRes
+                        except Exception as e:
+                            print(f"[ERROR] Fulfillment Thread from Sales: {e}")
 
-            for wo in wo_data:
-                sn_numbers = wo.get("SN Number", [])
-                wo_clean = {k: v for k, v in wo.items() if k != "SN Number"}
+                    # FOID
+                    if foid and ('foid' not in filters or foid == filters.get('foid')):
+                        try:
+                            threadRes = threadFunction(combined_foid_fetch, [foid], format_type, region, filters)
+                            result_map['foid'] = threadRes
+                        except Exception as e:
+                            print(f"[ERROR] FOID Thread from Sales: {e}")
 
-                if sn_numbers:
-                    for sn in sn_numbers:
-                        row = {**base, **wo_clean, "SN Number": sn}
-                        flat_list.append(row)
-                else:
-                    row = {**base, **wo_clean, "SN Number": None}
-                    flat_list.append(row)
+                    # WOID
+                    if woid and ('wo_id' not in filters or woid == filters.get('wo_id')):
+                        try:
+                            threadRes = threadFunction(combined_woid_fetch, [woid], format_type, region, filters)
+                            result_map['wo_id'] = threadRes
+                        except Exception as e:
+                            print(f"[ERROR] WOID Thread from Sales: {e}")
 
-        except Exception as e:
-            print(f"[ERROR] formatting row {so_index}: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
+                except Exception as e:
+                    print(f"Error processing salesData: {e}")
 
-    if format_type == "export":
-        return flat_list
+        else:
+            print("Not coming order date part")
 
-    elif format_type == "grid":
-        desired_order = [
-            'BUID','PP Date','Sales Order Id','Fulfillment Id','Region Code','FoId','System Qty','Ship By Date',
-            'LOB','Ship From Facility','Ship To Facility','Tax Regstrn Num','Address Line1','Postal Code','State Code',
-            'City Code','Customer Num','Customer Name Ext','Country','Create Date','Ship Code','Must Arrive By Date',
-            'Update Date','Merge Type','Manifest Date','Revised Delivery Date','Delivery City','Source System Id','IsDirect Ship',
-            'SSC','Vendor Work Order Num','Channel Status Code','Ismultipack','Ship Mode','Is Otm Enabled',
-            'SN Number','OIC Id', 'Order Date'
-        ]
-
-        rows = []
-        for item in flat_list:
-            row = {
-                "columns": [{"value": item.get(key, "")} for key in desired_order]
-            }
-            rows.append(row)
-
-        return rows
-
-    else:
-        return {"error": "Format type must be either 'grid' or 'export'"}
+        print(json.dumps(result_map, indent=2))
+        exit()
