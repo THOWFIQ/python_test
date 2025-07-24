@@ -694,4 +694,9 @@ if __name__ == "__main__":
             'Fullfillment Id' not in primary_filters and 
             'foid' not in primary_filters and 
             'wo_id' not in primary_filters:
+#if (
+    ('Order_create_date' in primary_filters or 
+     ('Order_from_date' in primary_filters and 'Order_to_date' in primary_filters)) and
+    not any(k in primary_filters for k in ['Sales_Order_id', 'Fullfillment Id', 'foid', 'wo_id'])
+):
 
