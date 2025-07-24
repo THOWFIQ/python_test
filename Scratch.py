@@ -5,10 +5,11 @@ import json
 
 async def safe_fetch(fetch_func, id_batch, region, filters):
     try:
-        return await fetch_func(id_batch, region, filters)
+        return await asyncio.to_thread(fetch_func, id_batch, region, filters)
     except Exception as e:
         print(f"[ERROR] Fetch failed for batch {id_batch}: {e}")
         return {}
+
 
 async def run_async_batches(fetch_func, id_list, region, filters, batch_size=10, concurrency_limit=5):
     semaphore = asyncio.Semaphore(concurrency_limit)
@@ -23,7 +24,9 @@ async def run_async_batches(fetch_func, id_list, region, filters, batch_size=10,
         tasks.append(bound_fetch(batch))
 
     results = await asyncio.gather(*tasks)
-    return [res for res in results if res]  # Remove failed/empty ones
+    return [res for res in results if res]
+
+
 
 # --- Async wrapper for fetch functions that return only one result (like fulfillment/woid/foid) ---
 async def fetch_and_store(fetch_func, id_list, region, filters, key, result_map):
