@@ -813,3 +813,18 @@ if __name__ == "__main__":
     
     print(json.dumps(flat_table,indent=2))
 
+
+[ERROR] Parsing salesData: Missing or empty 'result' list.
+[ERROR] Parsing salesData: Missing or empty 'result' list.
+Not entering Order Date part
+[ERROR] OutputFormat failed: cannot access local variable 'table_grid_output' where it is not associated with a value
+Traceback (most recent call last):
+  File "C:\Users\Thowfiq_S\Project\fdhdataservice\OrderLookUpFunction\combinationWrapper.py", line 783, in OutputFormat
+    return table_grid_output
+           ^^^^^^^^^^^^^^^^^
+UnboundLocalError: cannot access local variable 'table_grid_output' where it is not associated with a value
+{
+  "error": "cannot access local variable 'table_grid_output' where it is not associated with a value"
+}
+
+(.venv) C:\Users\Thowfiq_S\Project\fdhdataservice\OrderLookUpFunction>
