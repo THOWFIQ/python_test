@@ -813,18 +813,515 @@ if __name__ == "__main__":
     
     print(json.dumps(flat_table,indent=2))
 
-
-[ERROR] Parsing salesData: Missing or empty 'result' list.
-[ERROR] Parsing salesData: Missing or empty 'result' list.
-Not entering Order Date part
-[ERROR] OutputFormat failed: cannot access local variable 'table_grid_output' where it is not associated with a value
-Traceback (most recent call last):
-  File "C:\Users\Thowfiq_S\Project\fdhdataservice\OrderLookUpFunction\combinationWrapper.py", line 783, in OutputFormat
-    return table_grid_output
-           ^^^^^^^^^^^^^^^^^
-UnboundLocalError: cannot access local variable 'table_grid_output' where it is not associated with a value
 {
-  "error": "cannot access local variable 'table_grid_output' where it is not associated with a value"
+    "columns": [
+        {
+            "checked": true,
+            "group": "ID",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "BUID"
+        },
+        {
+            "checked": true,
+            "group": "Date",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "PP Date"
+        },
+        {
+            "checked": true,
+            "group": "ID",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Sales Order Id"
+        },
+        {
+            "checked": true,
+            "group": "ID",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Fulfillment Id"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Region Code"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "FoId"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "System Qty"
+        },
+        {
+            "checked": true,
+            "group": "Date",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Ship By Date"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "LOB"
+        },
+        {
+            "checked": false,
+            "group": "Facility",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship From Facility"
+        },
+        {
+            "checked": false,
+            "group": "Facility",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship To Facility"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Tax Regstrn Num"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Address Line1"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Postal Code"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "State Code"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "City Code"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Customer Num"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Customer Name Ext"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Country"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Create Date"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship Code"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Must Arrive By Date"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Update Date"
+        },
+        {
+            "checked": false,
+            "group": "Type",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Merge Type"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Manifest Date"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Revised Delivery Date"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Delivery City"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Source System Id"
+        },
+        {
+            "checked": false,
+            "group": "Flag",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Is Direct Ship"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "SSC"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Vendor Work Order Num"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Channel Status Code"
+        },
+        {
+            "checked": false,
+            "group": "Flag",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ismultipack"
+        },
+        {
+            "checked": false,
+            "group": "Mode",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship Mode"
+        },
+        {
+            "checked": false,
+            "group": "Flag",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Is Otm Enabled"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "SN Number"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "OIC ID"
+        },
+        {
+            "checked": true,
+            "group": "Date",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Order Date"
+        }
+    ],
+    "data": [
+        {
+            "columns": [
+                {
+                    "value": 108401
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "8040047674"
+                },
+                {
+                    "value": "3000044689"
+                },
+                {
+                    "value": "AMER"
+                },
+                {
+                    "value": "7344317223762862081"
+                },
+                {
+                    "value": 1
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "Latitude_5450"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "1415 ELM ST"
+                },
+                {
+                    "value": "03101"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "US"
+                },
+                {
+                    "value": "2025-06-27T05:54:36.347606"
+                },
+                {
+                    "value": "IY"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "2025-06-27T05:54:36.350152"
+                },
+                {
+                    "value": "ATO-DIRECT"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "DSP"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "kIDnsFM-EfCRxuvoe-df7A"
+                },
+                {
+                    "value": "2025-06-27T05:12:35"
+                }
+            ]
+        },
+        {
+            "columns": [
+                {
+                    "value": 108401
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "8040047674"
+                },
+                {
+                    "value": "3000044689"
+                },
+                {
+                    "value": "AMER"
+                },
+                {
+                    "value": "7344317223762862081"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "2025-06-27T05:12:35"
+                }
+            ]
+        }
+    ],
+    "logs": {
+        "urls": [],
+        "time": []
+    }
 }
-
-(.venv) C:\Users\Thowfiq_S\Project\fdhdataservice\OrderLookUpFunction>
