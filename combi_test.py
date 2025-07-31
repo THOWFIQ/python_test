@@ -709,3 +709,31 @@ def OutputFormat(result_map, format_type=None,region=None):
         traceback.print_exc()
         return {"error": str(e)}
 
+from concurrent.futures import ThreadPoolExecutor
+
+print("Try programiz.pro")
+
+q=[[11,37,53,81,5],
+
+[21,34,56,82,6],
+
+[90,38,89,84,7],
+
+[33,32,53,54,8],
+
+[93,72,13,14,33]]
+ 
+def task(n):
+
+    print (n)
+
+    return q[n] #call q[n] list to fetch from API
+ 
+ 
+with ThreadPoolExecutor(max_workers=3) as executor:
+
+    futures = [ executor.submit(task,i) for i in range(5)]
+
+    results = [future.result() for future in futures]
+
+ 
