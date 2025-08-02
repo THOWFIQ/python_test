@@ -1,0 +1,144 @@
+
+step 1 : passing from and to date from front end 
+
+step 2 : collecting this this from and to  and applying graphql api under the funtion 
+		url : https://salesorderheaderfulfillment-amer.usl-sit-r2-np.kob.dell.com/soheader
+		query : query MyQuery {{
+					getOrdersByDate(fromDate: "{orderFromDate}", toDate: "{orderToDate}") {{
+						result {{
+							fulfillmentId
+							oicId
+							mustArriveByDate
+							salesOrderId
+							deliveryCity
+							manifestDate
+							shipByDate
+							shipCode
+							updateDate
+							soHeaderRef
+							systemQty
+						}}
+					}}
+				}}
+step 3: get this query result(results count is 2000) and using this result get salesOrderId and fulfillmentId
+
+step 4 : print count salesOrderId 
+
+step 5 : print count fulfillmentId 
+
+step 6 : here paralelli have to call three urls 
+
+step 7 : based on that collected sales order ids  call 
+		Note : sales order ids -> based on this huge count mean we can pass upto 49 sales order ids per one hit or call in this query accept in list format example ["123456","123234"]
+		url : https://keysphereservice-amer.usl-sit-r2-np.kob.dell.com/findby
+		query : query MyQuery {{
+				  getBySalesorderids(salesorderIds: {salesorderIds}) {{
+					result {{
+					  asnNumbers {{
+						shipDate
+						shipFrom
+						shipTo
+						snNumber
+						sourceManifestId
+						sourceManifestStatus
+					  }}
+					  fulfillment {{
+						fulfillmentId
+						fulfillmentStatus
+						oicId
+						sourceSystemStatus
+					  }}
+					  fulfillmentOrders {{
+						foId
+					  }}
+					  salesOrder {{
+						buid
+						region
+						salesOrderId
+						createDate
+					  }}
+					  workOrders {{
+						channelStatusCode
+						woId
+						woStatusCode
+						woType
+					  }}
+					}}
+				  }}
+				}}
+step 8 : based on that collected fulfillmentId call 
+		Note : fulfillmentId -> based on this huge count mean we can pass upto 49 fulfillmentId per one hit or call in this query accept in list format example ["123456","123234"]
+		url : https://keysphereservice-amer.usl-sit-r2-np.kob.dell.com/findby
+		query : query MyQuery {{
+				  getByFulfillmentids(fulfillmentIds: {fulfillmentid}) {{
+					result {{
+					  fulfillment {{
+						fulfillmentId
+						oicId
+						fulfillmentStatus
+						sourceSystemStatus
+					  }}
+					  fulfillmentOrders {{
+						foId
+					  }}
+					  workOrders {{
+						woId
+						channelStatusCode
+						woStatusCode
+						woType
+					  }}
+					  salesOrder {{
+						salesOrderId
+						buid
+						region
+						createDate
+					  }}
+					  asnNumbers {{
+						shipFrom
+						shipTo
+						snNumber
+						sourceManifestId
+						sourceManifestStatus
+						shipDate
+					  }}
+					}}
+				  }}
+				}}
+step 9 : based this fulfillmentId we need to call one more url 
+		note : this url accept only one id in string type not a list type 
+		url : https://salesorderheaderfulfillment-amer.usl-sit-r2-np.kob.dell.com/soheader
+		query : query MyQuery {{
+					getFulfillmentsBysofulfillmentid(fulfillmentId: "{fulfillment_id}") {{
+					fulfillments {{
+						shipByDate
+						address {{
+						  taxRegstrnNum
+						  addressLine1
+						  postalCode
+						  stateCode
+						  cityCode
+						  customerNum
+						  customerNameExt
+						  country
+						  createDate
+						}}
+						oicId
+						shipCode
+						mustArriveByDate
+						updateDate
+						mergeType
+						manifestDate
+						revisedDeliveryDate
+						deliveryCity
+						salesOrderLines {{
+						  facility
+						}}
+					}}
+					sourceSystemId
+					salesOrderId
+					}}
+				}}
+				
+step 10 : finally i need all combined data need 
+
+note : when we calling this api time out issue never to come 
