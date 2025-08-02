@@ -1,117 +1,30 @@
-import asyncio
-import aiohttp
-from aiohttp import ClientSession, ClientTimeout
-from typing import List
+def run_multithread_batches(fetch_func, ids, region, filters, batch_size=50, max_workers=10, delay_between_batches=0.5):
+    start_time = time.time()
+    all_results = []
 
-ORDERS_API = "https://salesorderheaderfulfillment-amer.usl-sit-r2-np.kob.dell.com/soheader"
-KEYSPHERE_API = "https://keysphereservice-amer.usl-sit-r2-np.kob.dell.com/findby"
-BATCH_SIZE = 49
-MAX_CONCURRENT_REQUESTS = 20  # controls parallelism for step 9
+    def process_batch(batch_ids):
+        try:
+            return fetch_func(batch_ids, region, filters)
+        except Exception as e:
+            print(f"[ERROR] Batch failed: {e}")
+            return None
 
-# GraphQL POST helper
-async def graphql_post(session: ClientSession, url: str, query: str):
-    headers = {"Content-Type": "application/json"}
-    async with session.post(url, json={"query": query}) as resp:
-        resp.raise_for_status()
-        return await resp.json()
+    batches = [ids[i:i + batch_size] for i in range(0, len(ids), batch_size)]
 
-# Step 2: Fetch all orders by date
-async def fetch_orders_by_date(session, from_date, to_date):
-    query = f'''
-    query {{
-        getOrdersByDate(fromDate: "{from_date}", toDate: "{to_date}") {{
-            result {{
-                salesOrderId
-                fulfillmentId
-            }}
-        }}
-    }}'''
-    response = await graphql_post(session, ORDERS_API, query)
-    return response["data"]["getOrdersByDate"]["result"]
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_batch = {executor.submit(process_batch, batch): batch for batch in batches}
 
-# Batched GraphQL request
-async def fetch_batch(session, ids: List[str], query_template: str, url: str):
-    tasks = []
-    for i in range(0, len(ids), BATCH_SIZE):
-        batch = ids[i:i + BATCH_SIZE]
-        query = query_template.format(ids=batch)
-        tasks.append(graphql_post(session, url, query))
-    return await asyncio.gather(*tasks)
+        for future in as_completed(future_to_batch):
+            batch = future_to_batch[future]
+            try:
+                result = future.result()
+                if result:
+                    all_results.append(result)
+            except Exception as e:
+                print(f"[ERROR] Failed to fetch batch: {e}")
 
-# Step 9: Fetch fulfillment detail 1-by-1, throttled with semaphore
-async def fetch_fulfillment_detail_throttled(session, fulfillment_id, sem):
-    query = f'''
-    query {{
-        getFulfillmentsBysofulfillmentid(fulfillmentId: "{fulfillment_id}") {{
-            salesOrderId
-            sourceSystemId
-            fulfillments {{
-                shipByDate
-                oicId
-                deliveryCity
-                salesOrderLines {{ facility }}
-            }}
-        }}
-    }}'''
-    async with sem:
-        return await graphql_post(session, ORDERS_API, query)
+            time.sleep(delay_between_batches)  # throttle API calls
 
-async def main(from_date, to_date):
-    timeout = ClientTimeout(total=120)
-    conn = aiohttp.TCPConnector(limit=100)
-    sem = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
-
-    async with ClientSession(timeout=timeout, connector=conn) as session:
-        # Step 1 & 2: Fetch main orders
-        order_data = await fetch_orders_by_date(session, from_date, to_date)
-        sales_ids = list({item['salesOrderId'] for item in order_data if item.get('salesOrderId')})
-        fulfillment_ids = list({item['fulfillmentId'] for item in order_data if item.get('fulfillmentId')})
-        print(f"Sales Order IDs: {len(sales_ids)}, Fulfillment IDs: {len(fulfillment_ids)}")
-
-        # Step 7: getBySalesorderids
-        sales_query = '''
-        query {{
-            getBySalesorderids(salesorderIds: {ids}) {{
-                result {{
-                    salesOrder {{ salesOrderId buid region }}
-                    fulfillment {{ fulfillmentId }}
-                }}
-            }}
-        }}'''
-        sales_results = await fetch_batch(session, sales_ids, sales_query, KEYSPHERE_API)
-
-        # Step 8: getByFulfillmentids
-        fulfillment_query = '''
-        query {{
-            getByFulfillmentids(fulfillmentIds: {ids}) {{
-                result {{
-                    salesOrder {{ salesOrderId }}
-                    fulfillment {{ fulfillmentId }}
-                }}
-            }}
-        }}'''
-        fulfillment_results = await fetch_batch(session, fulfillment_ids, fulfillment_query, KEYSPHERE_API)
-
-        # Step 9: Throttled per-fulfillment-id fetches
-        print("Fetching 1-by-1 fulfillment details with throttling...")
-        tasks = [fetch_fulfillment_detail_throttled(session, fid, sem) for fid in fulfillment_ids]
-        fulfillment_detailed = await asyncio.gather(*tasks)
-
-        # Combine all data
-        combined = {
-            "orders": order_data,
-            "salesResults": sales_results,
-            "fulfillmentResults": fulfillment_results,
-            "fulfillmentDetails": fulfillment_detailed
-        }
-
-        print("✅ Completed all data fetching.")
-        return combined
-
-if __name__ == "__main__":
-    import time
-    from_date = "2024-08-01"
-    to_date = "2024-08-15"
-    start = time.time()
-    result = asyncio.run(main(from_date, to_date))
-    print(f"Total Time: {round(time.time() - start, 2)} seconds")
+    end_time = time.time()
+    print(f"[INFO] Completed {len(batches)} batches in {end_time - start_time:.2f} seconds.")
+    return all_results
