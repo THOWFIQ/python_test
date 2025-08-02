@@ -1,22 +1,21 @@
 import asyncio
 import httpx
-import math
 
-# Set URLs
+# --- API URLs ---
 GET_ORDERS_URL = "https://salesorderheaderfulfillment-amer.usl-sit-r2-np.kob.dell.com/soheader"
 KEYSPHERE_URL = "https://keysphereservice-amer.usl-sit-r2-np.kob.dell.com/findby"
 
-# Headers (if needed)
+# --- Headers ---
 HEADERS = {
     "Content-Type": "application/json"
 }
 
-# GraphQL Helper
+# --- Helper for GraphQL ---
 def build_graphql_query(query: str):
     return {"query": query}
 
 
-# Step 1-3: Get Orders by Date
+# --- Step 2: Get Orders by Date ---
 async def get_orders_by_date(from_date, to_date):
     query = f"""
     query MyQuery {{
@@ -37,14 +36,14 @@ async def get_orders_by_date(from_date, to_date):
         }}
     }}
     """
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(verify=False, timeout=60.0) as client:
         response = await client.post(GET_ORDERS_URL, headers=HEADERS, json=build_graphql_query(query))
         response.raise_for_status()
         data = response.json()['data']['getOrdersByDate']['result']
         return data
 
 
-# Step 6-7: Batch Sales Order IDs for Keysphere API
+# --- Step 6-7: Call Keysphere by SalesOrderId ---
 async def get_by_salesorder_ids(sales_order_ids):
     batched_results = []
 
@@ -62,11 +61,10 @@ async def get_by_salesorder_ids(sales_order_ids):
             }}
         }}
         """
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(verify=False, timeout=60.0) as client:
             res = await client.post(KEYSPHERE_URL, headers=HEADERS, json=build_graphql_query(query))
             return res.json()['data']['getBySalesorderids']['result']
 
-    # Batching 49 at a time
     batches = [sales_order_ids[i:i+49] for i in range(0, len(sales_order_ids), 49)]
     tasks = [fetch_batch(str(batch).replace("'", '"')) for batch in batches]
     results = await asyncio.gather(*tasks)
@@ -75,7 +73,7 @@ async def get_by_salesorder_ids(sales_order_ids):
     return batched_results
 
 
-# Step 8: Batch Fulfillment IDs
+# --- Step 8: Call Keysphere by FulfillmentId ---
 async def get_by_fulfillment_ids(fulfillment_ids):
     batched_results = []
 
@@ -93,11 +91,10 @@ async def get_by_fulfillment_ids(fulfillment_ids):
             }}
         }}
         """
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(verify=False, timeout=60.0) as client:
             res = await client.post(KEYSPHERE_URL, headers=HEADERS, json=build_graphql_query(query))
             return res.json()['data']['getByFulfillmentids']['result']
 
-    # Batching 49 at a time
     batches = [fulfillment_ids[i:i+49] for i in range(0, len(fulfillment_ids), 49)]
     tasks = [fetch_batch(str(batch).replace("'", '"')) for batch in batches]
     results = await asyncio.gather(*tasks)
@@ -106,7 +103,7 @@ async def get_by_fulfillment_ids(fulfillment_ids):
     return batched_results
 
 
-# Step 9: Call getFulfillmentsBysofulfillmentid (one by one)
+# --- Step 9: One-by-one Fulfillment Detail ---
 async def get_fulfillments_by_id(fulfillment_id):
     query = f"""
     query MyQuery {{
@@ -124,7 +121,7 @@ async def get_fulfillments_by_id(fulfillment_id):
         }}
     }}
     """
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(verify=False, timeout=60.0) as client:
         res = await client.post(GET_ORDERS_URL, headers=HEADERS, json=build_graphql_query(query))
         return res.json()['data']['getFulfillmentsBysofulfillmentid']
 
@@ -134,29 +131,31 @@ async def get_all_fulfillment_details(fulfillment_ids):
     return await asyncio.gather(*tasks)
 
 
-# Step 10: Main orchestration
+# --- Step 10: Orchestration ---
 async def main(from_date, to_date):
     print(f"Fetching orders from {from_date} to {to_date}...")
 
-    # Step 2-4
+    # Step 2-4: Get Orders
     orders = await get_orders_by_date(from_date, to_date)
     sales_order_ids = list({item['salesOrderId'] for item in orders if item.get('salesOrderId')})
     fulfillment_ids = list({item['fulfillmentId'] for item in orders if item.get('fulfillmentId')})
 
-    print("Sales Order ID Count:", len(sales_order_ids))
-    print("Fulfillment ID Count:", len(fulfillment_ids))
+    print("✅ Sales Order ID Count:", len(sales_order_ids))
+    print("✅ Fulfillment ID Count:", len(fulfillment_ids))
 
-    # Step 6-8: Parallel API calls
-    print("Fetching Keysphere details for Sales Orders...")
+    # Step 6-7: Get Keysphere SalesOrder data
+    print("🔄 Getting data from Keysphere (SalesOrder)...")
     sales_order_data = await get_by_salesorder_ids(sales_order_ids)
 
-    print("Fetching Keysphere details for Fulfillments...")
+    # Step 8: Get Keysphere Fulfillment data
+    print("🔄 Getting data from Keysphere (Fulfillment)...")
     fulfillment_data = await get_by_fulfillment_ids(fulfillment_ids)
 
-    print("Fetching detailed Fulfillment information...")
+    # Step 9: Get Fulfillment Detail one-by-one
+    print("🔄 Getting detailed fulfillment data (1-by-1)...")
     fulfillment_detail_data = await get_all_fulfillment_details(fulfillment_ids)
 
-    # Combine all data
+    # Combine all
     combined_data = {
         "orders": orders,
         "sales_order_data": sales_order_data,
@@ -164,14 +163,13 @@ async def main(from_date, to_date):
         "fulfillment_detail_data": fulfillment_detail_data
     }
 
-    print("Combined data ready.")
+    print("🎉 Combined data collection complete.")
     return combined_data
 
 
-# Run the full pipeline
+# --- Main Call ---
 if __name__ == "__main__":
+    # Example Dates – Update as needed
     from_date = "2024-06-01"
     to_date = "2024-06-30"
     final_data = asyncio.run(main(from_date, to_date))
-
-httpx.ConnectError: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1010)
