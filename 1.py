@@ -173,3 +173,5 @@ if __name__ == "__main__":
     from_date = "2024-06-01"
     to_date = "2024-06-30"
     final_data = asyncio.run(main(from_date, to_date))
+
+httpx.RemoteProtocolError: Server disconnected without sending a response.
