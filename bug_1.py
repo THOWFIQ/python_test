@@ -1,197 +1,92 @@
-[
-  {
-    "data": {
-      "getBySalesorderids": {
-        "result": [
-          {
-            "asnNumbers": [],
-            "fulfillment": [
-              {
-                "fulfillmentId": "537576",
-                "fulfillmentStatus": "PP",
-                "oicId": "95b8c514-070e-45ce-bef0-3e30773a9c36",
-                "sourceSystemStatus": "PP"
-              }
-            ],
-            "fulfillmentOrders": [
-              {
-                "foId": "7327243849264562177"
-              }
-            ],
-            "salesOrder": {
-              "buid": "10276",
-              "region": "EMEA",
-              "salesOrderId": "494070",
-              "createDate": "2025-05-11 09:11:05.324333"
-            },
-            "workOrders": []
-          }
-        ]
-      }
+def tablestructural(data,IsPrimary):
+    table_structure = {
+        "columns": [            
+            {"value": "BUID", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "ID", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+            {"value": "PP Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "IP Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "MN Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "SC Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "CFI Flag", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Agreement Id", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value": "Amount", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Currency Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Customer Po Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Dp Id", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Location Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Order Age", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Order Amount usd", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Order Update Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Rate Usd Transactional", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Sales Rep Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Shipping Country", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Source System Status", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Tie Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Si Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Req Ship Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Reassigned Ip Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "RDD", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Product Lob", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Payment Term Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Ofs Status Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Ofs Status", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Fulfillment Status", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "DomsStatus", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Company Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Contact Type", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Special Instruction Id", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Special Instruction Type", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Shipping City Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "City", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "First Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Last Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "State Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Address Line1", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Address Line2", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Phone Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Postal Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Sales Order Id", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "ID", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+            {"value": "Fulfillment Id", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "ID", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+            {"value": "Region Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+            {"value": "FoId", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value": "Work Order ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value": "System Qty", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA"], "group": "Other", "checked": IsPrimary in ["APJ","EMEA"]},
+            {"value": "Ship By Date", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "Date", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+            {"value": "LOB", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA"], "group": "Other", "checked": IsPrimary in ["APJ","EMEA"]},
+            {"value": "Ship From Facility", "sortBy": "ascending", "isPrimary": IsPrimary in ["EMEA"], "group": "Facility", "checked": IsPrimary in ["EMEA"]},
+            {"value": "Ship To Facility", "sortBy": "ascending", "isPrimary": IsPrimary in ["EMEA"], "group": "Facility", "checked": IsPrimary in ["EMEA"]},
+            {"value": "Facility", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "Facility", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+            {"value": "ASN Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value": "Tax Regstrn Num", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+            {"value": "Address Line1", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+            {"value": "Postal Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+            {"value": "State Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+            {"value": "City Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+            {"value": "Customer Num", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+            {"value": "Customer Name Ext", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+            {"value": "Country", "sortBy": "ascending", "isPrimary": IsPrimary in ['APJ'], "group": "Address", "checked": IsPrimary in ['APJ']},
+            {"value": "Create Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Ship Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+            {"value": "Must Arrive By Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Update Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Merge Type", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Type", "checked": IsPrimary in []},
+            {"value": "Manifest Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Revised Delivery Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Delivery City", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+            {"value": "Source System Id", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value": "Is Direct Ship", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Flag", "checked": IsPrimary in []},
+            {"value": "SSC", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+            {"value": "Vendor Work Order Num", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value": "Channel Status Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+            {"value": "Ismultipack", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Flag", "checked": IsPrimary in []},
+            {"value": "Ship Mode", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Mode", "checked": IsPrimary in []},
+            {"value": "Is Otm Enabled", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Flag", "checked": IsPrimary in []},
+            {"value": "OIC ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value":"Order Date","sortBy":"ascending","isPrimary":IsPrimary in ["APJ","DAO","AMER","LA"],"group":"Date","checked":IsPrimary in ["APJ","DAO","AMER","LA"]}
+        ],
+        "data": []
     }
-  },
-  {
-    "data": {
-      "getFulfillmentsById": [
-        {
-          "soHeaderRef": "7327243840485240832",
-          "buid": 10276,
-          "salesOrderId": "494070",
-          "region": "EMEA",
-          "sourceSystemId": "OPS",
-          "fulfillments": [
-            {
-              "systemQty": 1,
-              "shipByDate": "1900-01-01T00:00:00",
-              "updateDate": "2025-05-11T09:11:05.930696",
-              "shipCode": "Air",
-              "mustArriveByDate": "1900-01-01T00:00:00",
-              "mergeType": "ATO-INDIRECT",
-              "manifestDate": "1900-01-01T00:00:00",
-              "revisedDeliveryDate": "1900-01-01T00:00:00",
-              "deliveryCity": null,
-              "oicId": "95b8c514-070e-45ce-bef0-3e30773a9c36",
-              "paymentTerm": "IMMEDIATE",
-              "salesOrderLines": [
-                {
-                  "lob": "Inspiron 14 5440",
-                  "facility": "APCX",
-                  "siNumber": null,
-                  "soLineNum": 1,
-                  "specialinstructions": []
-                }
-              ],
-              "sostatus": [
-                {
-                  "sourceSystemStsCode": "PP",
-                  "statusDate": null,
-                  "fulfillmentStsCode": "PP"
-                }
-              ],
-              "address": [
-                {
-                  "taxRegstrnNum": null,
-                  "addressLine1": "Dersden",
-                  "postalCode": "01001",
-                  "stateCode": null,
-                  "cityCode": null,
-                  "customerNum": null,
-                  "customerNameExt": null,
-                  "country": "DE",
-                  "createDate": "2025-05-11T09:11:05.912142"
-                },
-                {
-                  "taxRegstrnNum": null,
-                  "addressLine1": "Dersden",
-                  "postalCode": "01001",
-                  "stateCode": null,
-                  "cityCode": null,
-                  "customerNum": null,
-                  "customerNameExt": null,
-                  "country": "DE",
-                  "createDate": "2025-05-11T09:11:05.912142"
-                }
-              ]
-            }
-          ]
-        }
-      ],
-      "getSoheaderBySoids": [
-        {
-          "buid": 10276,
-          "ppDate": null,
-          "orderDate": "2025-03-15T14:29:06",
-          "salesOrderId": "494070",
-          "agreementId": null,
-          "totalPrice": 6894.62,
-          "currency": "USD",
-          "poNumber": "Po123",
-          "dpid": "494070",
-          "locationNum": "01",
-          "rateUsdTransactional": 0.0,
-          "updateDate": "2025-05-11T09:11:05.324333",
-          "address": [
-            {
-              "companyName": "Iron Mountain Service GmbH - V2",
-              "cityCode": null,
-              "city": "Dersden",
-              "firstName": "Michael",
-              "lastName": null,
-              "country": "DE",
-              "stateCode": null,
-              "addressLine1": "Dersden",
-              "addressLine2": "Dersden",
-              "postalCode": "01001",
-              "contact": [
-                {
-                  "contactType": "SOLDTO"
-                }
-              ],
-              "phone": [
-                {
-                  "phoneNumber": "1-12345678"
-                }
-              ]
-            },
-            {
-              "companyName": "Iron Mountain Service GmbH - V2",
-              "cityCode": null,
-              "city": "Dersden",
-              "firstName": "Nick",
-              "lastName": "Miller",
-              "country": "DE",
-              "stateCode": null,
-              "addressLine1": "Dersden",
-              "addressLine2": "Dersden",
-              "postalCode": "01001",
-              "contact": [
-                {
-                  "contactType": "BILLING"
-                }
-              ],
-              "phone": [
-                {
-                  "phoneNumber": "49-9876543201"
-                }
-              ]
-            }
-          ],
-          "salesrep": [
-            {
-              "salesRepName": null
-            }
-          ]
-        }
-      ]
-    }
-  },
-  {
-    "data": {
-      "getByFulfillmentids": {
-        "result": [
-          {
-            "fulfillment": {
-              "fulfillmentId": "537576",
-              "oicId": "95b8c514-070e-45ce-bef0-3e30773a9c36",
-              "fulfillmentStatus": "PP",
-              "sourceSystemStatus": "PP"
-            },
-            "fulfillmentOrders": [
-              {
-                "foId": "7327243849264562177"
-              }
-            ],
-            "workOrders": [],
-            "salesOrder": {
-              "salesOrderId": "494070",
-              "buid": "10276",
-              "region": "EMEA",
-              "createDate": "2025-05-11 09:11:05.324333"
-            },
-            "asnNumbers": []
-          }
-        ]
-      }
-    }
-  }
-  ]
+    table_structure["data"].extend(data)
+    return table_structure
+
+
+
