@@ -55,3 +55,40 @@ if "Sales_Order_id" in filters:
 
                     # Append vendor data to records
                     records.append(vendor_data)
+
+
+
+once  following result get mean 
+
+if obj.salesOrderId and obj.salesOrderId.salesOrderId:
+            graphql_request.append({
+                "url": path['FID'],
+                "query": fetch_salesorder_query(json.dumps(obj.salesOrderId.salesOrderId))
+            })
+            print(f"[{countReqNo}] Sales Order: {obj.salesOrderId.salesOrderId}")
+
+get this response and collect two feilds (shipFromVendorId, sourceManifestId)
+
+then call 
+
+	URL : path['ASNODM']
+
+    payload = {
+        "query": getAsnHeaderById(json.dumps(obj.salesOrderId.shipFromVendorId),json.dumps(obj.salesOrderId.sourceManifestId))
+    }
+    response = requests.post(url, json=payload, verify=False)
+    data = response.json()
+
+then collect this field  -> shipToVendorId
+
+then call 
+
+        URL : path['VENDOR']
+
+        payload = {
+            "query": getVendormasterByVendorid(json.dumps(obj.salesOrderId.shipToVendorId))
+        }
+        response = requests.post(url, json=payload, verify=False)
+        data = response.json()
+
+records.append(data)
