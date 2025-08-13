@@ -78,7 +78,49 @@ def mainfunction(filters, format_type, region):
                 )
                 records.append(record)
 
-    # TODO: Similar batching logic can be applied for "foid" and "wo_id" if needed
+    # --- Handle "foid" with batching ---
+    if "foid" in filters:
+        url = path['FID']
+        fo_ids = list(map(str.strip, filters["foid"].split(",")))
+        for batch in chunk_list(fo_ids, 50):
+            payload = {
+                "query": fetch_getByFoid_query(json.dumps(batch))
+            }
+            response = requests.post(url, json=payload, verify=False)
+            data = response.json()
+            if "errors" in data:
+                return jsonify({"error": data["errors"]}), 500
+            result = data.get("data", {}).get("getByFoid", {})
+            for entry in result.get("result", []):
+                record = FulfillmentOrderRecord(
+                    fulfillmentOrders=[FulfillmentOrder(**fo) for fo in entry.get("fulfillmentOrders", [])],
+                    salesOrderId=SalesOrder(**entry.get("salesOrder", {})),
+                    fulfillment=[Fulfillment(**ff) for ff in entry.get("fulfillment", [])],
+                    workOrders=[WorkOrder(**wo) for wo in entry.get("workOrders", [])]
+                )
+                records.append(record)
+
+    # --- Handle "wo_id" with batching ---
+    if "wo_id" in filters:
+        url = path['FID']
+        wo_ids = list(map(str.strip, filters["wo_id"].split(",")))
+        for batch in chunk_list(wo_ids, 50):
+            payload = {
+                "query": fetch_getByWoId_query(json.dumps(batch))
+            }
+            response = requests.post(url, json=payload, verify=False)
+            data = response.json()
+            if "errors" in data:
+                return jsonify({"error": data["errors"]}), 500
+            result = data.get("data", {}).get("getByWoId", {})
+            for entry in result.get("result", []):
+                record = WorkOrderRecord(
+                    workOrders=[WorkOrder(**wo) for wo in entry.get("workOrders", [])],
+                    salesOrderId=SalesOrder(**entry.get("salesOrder", {})),
+                    fulfillment=[Fulfillment(**ff) for ff in entry.get("fulfillment", [])],
+                    fulfillmentOrders=[FulfillmentOrder(**fo) for fo in entry.get("fulfillmentOrders", [])]
+                )
+                records.append(record)
 
     # --- Build GraphQL request list for async processing ---
     graphql_request = []
