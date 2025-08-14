@@ -1,34 +1,39 @@
-@app.route('/getByFilters', methods=['POST'])
-def get_by_filters():
-    try:
-        # Extract incoming JSON
-        data = request.get_json()
-        filters = data.get("filters", {})
-        tableformat = data.get("tableformat")
-        region = data.get("region")
+Column Name	Contact Type
+BillingCustomerName	BILLING
+CustomerName	SHIPPING
+InstallInstruction2	ATTRIBUTE_NAME = 'INSTALL_INSTR2'
+ShippingCityCode	SHIPPING
+ShippingContactName	SHIPPING
+ShippingCustName	SHIPPING
+ShippingStateCode	SHIPPING
+ShipToAddress1	SHIPPING
+ShipToAddress2	SHIPPING
+ShipToCompany	SHIPPING
+ShipToPhone	SHIPPING
+ShipToPostal	SHIPPING
 
-        # Validate input
-        if not filters or not tableformat or not region:
-            return jsonify({"error": "Please provide 'filters', 'tableformat' (grid or export), and 'region'."}), 400
-
-        # Reset global CollectedValue tracker
-        global CollectedValue
-        CollectedValue = {
-            "sales": False,
-            "FullFil": False,
-            "Work": False,
-            "Fo": False
-        }
-
-        # Fetch combined results using filters
-        result_map = fieldValidation(filters=filters, format_type=tableformat, region=region)
-
-        # Format output based on requested format
-        formatted_output = OutputFormat(result_map, format_type=tableformat)
-
-        return jsonify(formatted_output), 200
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+BillingCustomerName	getSoheaderBySoids/address/companyName
+getSoheaderBySoids/address/contact/contactType
+CustomerName	getSoheaderBySoids/address/companyName
+getSoheaderBySoids/address/contact/contactType
+InstallInstruction2	getFulfillmentsById/salesOrderLines/specialinstructions/specialInstructionId
+getFulfillmentsById/salesOrderLines/specialinstructions/specialInstructionType
+ShippingCityCode	getSoheaderBySoids/address/cityCode
+getSoheaderBySoids/address/contact/contactType
+ShippingContactName	getSoheaderBySoids/address/firstName
+getSoheaderBySoids/address/lastName
+getSoheaderBySoids/address/contact/contactType
+ShippingCustName	getSoheaderBySoids/address/companyName
+getSoheaderBySoids/address/contact/contactType
+ShippingStateCode	getSoheaderBySoids/address/stateCode
+getSoheaderBySoids/address/contact/contactType
+ShipToAddress1	getSoheaderBySoids/address/addressLine1
+getSoheaderBySoids/address/contact/contactType
+ShipToAddress2	getSoheaderBySoids/address/addressLine2
+getSoheaderBySoids/address/contact/contactType
+ShipToCompany	getSoheaderBySoids/address/companyName
+getSoheaderBySoids/address/contact/contactType
+ShipToPhone	getSoheaderBySoids/address/contact/contactType
+getSoheaderBySoids/address/phone/phoneNumber
+ShipToPostal	getSoheaderBySoids/address/postalCode
+getSoheaderBySoids/address/contact/contactType
