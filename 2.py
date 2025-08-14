@@ -129,29 +129,6 @@ def mainfunction(filters, format_type, region):
             )
             records.append(record)
 
-    # if "Sales_Order_id" in filters:
-    #     url = path['FID']
-    #     sales_ids = list(map(str.strip, filters["Sales_Order_id"].split(",")))
-    #     for batch in chunk_list(sales_ids, 50):
-    #         payload = {
-    #             "query": fetch_salesorderf_query(json.dumps(batch))
-    #         }
-    #         response = requests.post(url, json=payload, verify=False)
-    #         data = response.json()
-    #         if "errors" in data:
-    #             return jsonify({"error": data["errors"]}), 200
-    #         result = data.get("data", {}).get("getBySalesorderids", {})
-
-    #         for entry in result.get("result", []):
-    #             record = SalesRecord(
-    #                 asnNumbers=[ASNNumber(**asn) for asn in entry.get("asnNumbers", [])],
-    #                 fulfillment=[Fulfillment(**ff) for ff in entry.get("fulfillment", [])],
-    #                 fulfillmentOrders=[FulfillmentOrder(**fo) for fo in entry.get("fulfillmentOrders", [])],
-    #                 salesOrderId=SalesOrder(**entry.get("salesOrder", {})),
-    #                 workOrders=[WorkOrder(**wo) for wo in entry.get("workOrders", [])]
-    #             )
-    #             records.append(record)
-
     if "Sales_Order_id" in filters:
         url = path['FID']
         sales_ids = list(map(str.strip, filters["Sales_Order_id"].split(",")))
@@ -176,20 +153,14 @@ def mainfunction(filters, format_type, region):
                     salesOrderId=SalesOrder(**entry.get("salesOrder", {})),
                     workOrders=[WorkOrder(**wo) for wo in entry.get("workOrders", [])]
                 )
-                
-                # 🔹 Extract vendor-related IDs                
+
                 asn_list = entry.get("asnNumbers", [])
                 first_asn = asn_list[0] if asn_list else {}
 
                 ship_from_vendor_id = first_asn.get("shipFromVendorId", "")
                 source_manifest_id = first_asn.get("sourceManifestId", "")
 
-                # print("i'm here ")
-                # print(f"from vendor id : {ship_from_vendor_id}")
-                # print(f"source_manifest_id : {source_manifest_id}")
-                # exit()
                 if ship_from_vendor_id and source_manifest_id:
-                    # 🔹 Call ASNODM
                     asn_url = path['ASNODM']
                     asn_payload = {
                         "query": fetch_AsnOrderByID_query(
@@ -199,26 +170,13 @@ def mainfunction(filters, format_type, region):
                     }
                     asn_response = requests.post(asn_url, json=asn_payload, verify=False)                    
                     asn_data = asn_response.json()
-
-                    ship_to_vendor_id = (
-                        asn_data.get("data", {})
+                    
+                    record.vendorInfo = (
+                            asn_data.get("data", {})
                                 .get("getAsnHeaderById", [{}])[0]
                                 .get("shipToVendorId")
                     )
-
-                    if ship_to_vendor_id:
-                        vendor_url = path['VENDOR']
-                        vendor_payload = {
-                            "query": fetch_isCFI_query(json.dumps(ship_to_vendor_id))
-                        }
-                        vendor_response = requests.post(vendor_url, json=vendor_payload, verify=False)
-                        vendor_data = vendor_response.json()
-
-                        record.vendorInfo = (
-                            vendor_data.get("data", {})
-                            .get("getVendormasterByVendorid", [{}])[0]
-                            .get("isCfi")
-                            )                    
+                                       
                 records.append(record)
 
     if "Fullfillment Id" in filters:
@@ -289,7 +247,7 @@ def mainfunction(filters, format_type, region):
     countReqNo = 0
     for obj in records:
         countReqNo += 1
-
+        
         if obj.salesOrderId and obj.salesOrderId.salesOrderId:
             graphql_request.append({
                 "url": path['FID'],
@@ -318,6 +276,14 @@ def mainfunction(filters, format_type, region):
             })
             print(f"[{countReqNo}] Fulfillment ID: {fulfillment_id}")
 
+        if obj.vendorInfo:
+            graphql_request.append({
+                "url": path['VENDOR'],
+                "query": fetch_isCFI_query(json.dumps(obj.vendorInfo))
+            })
+            
+            print(f"[{countReqNo}] VendorTo ID: {fulfillment_id}")
+           
     results = asyncio.run(run_all(graphql_request))
     return results
 
@@ -341,8 +307,8 @@ async def run_all(graphql_request):
         return results
 
 def OutputFormat(result_map, format_type=None, region=None):
-    print(json.dumps(result_map,indent=2))
-    exit()
+    # print(json.dumps(result_map,indent=2))
+    # exit()
     try:
         # Extract relevant blocks
         salesorders = list(map(
@@ -360,6 +326,11 @@ def OutputFormat(result_map, format_type=None, region=None):
             filter(lambda item: "getSoheaderBySoids" in item.get("data", {}), result_map)
         ))
 
+        VendormasterByVendor = list(map(
+            lambda item: item["data"]["getVendormasterByVendorid"][0],
+            filter(lambda item: "getVendormasterByVendorid" in item.get("data", {}), result_map)
+        ))
+
         # Combine all entries
         flat_list = list(map(lambda idx: {
             "BUID": safe_get(salesorders[idx], ['salesOrder', 'buid']),
@@ -367,7 +338,7 @@ def OutputFormat(result_map, format_type=None, region=None):
             "IP Date": dateFormation(safe_get(fulfillments_by_id[idx], ['fulfillments', 0, 'sostatus', 0, 'statusDate'])) if safe_get(fulfillments_by_id[idx], ['fulfillments', 0, 'sostatus', 0, 'sourceSystemStsCode']) == "IP" else "",
             "MN Date": dateFormation(safe_get(fulfillments_by_id[idx], ['fulfillments', 0, 'sostatus', 0, 'statusDate'])) if safe_get(fulfillments_by_id[idx], ['fulfillments', 0, 'sostatus', 0, 'sourceSystemStsCode']) == "MN" else "",
             "SC Date": dateFormation(safe_get(fulfillments_by_id[idx], ['fulfillments', 0, 'sostatus', 0, 'statusDate'])) if safe_get(fulfillments_by_id[idx], ['fulfillments', 0, 'sostatus', 0, 'sourceSystemStsCode']) == "SC" else "",
-            "CFI Flag": "",
+            "CFI Flag": safe_get(VendormasterByVendor[idx], ['isCfi']) if idx < len(VendormasterByVendor) else "",
             "Agreement ID": safe_get(salesheaders_by_ids[idx], ['agreementId']),
             "Amount": safe_get(salesheaders_by_ids[idx], ['totalPrice']),
             "Currency Code": safe_get(salesheaders_by_ids[idx], ['currency']),
