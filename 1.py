@@ -1,163 +1,80 @@
-def chunk_list(data_list, chunk_size):
-    """Split list into chunks of given size."""
-    for i in range(0, len(data_list), chunk_size):
-        yield data_list[i:i + chunk_size]
-
-
-def mainfunction(filters, format_type, region):
-    payload = {}
-    path = getPath(region)  
-    records = []
-
-    # --- Handle "from" & "to" date case ---
-    if "from" in filters and "to" in filters:
-        url = path['SOPATH']
-        payload = {
-            "query": fetch_getOrderDate_query(
-                filters["from"],
-                filters["to"],
-                filters.get("fulfillmentSts", ""),
-                filters.get("sourceSystemSts", "")
-            )
-        }
-        response = requests.post(url, json=payload, verify=False)
-        data = response.json()
-        if "errors" in data:
-            return jsonify({"error": data["errors"]}), 500
-        result = data.get("data", {}).get("getOrdersByDate", {})
-        for entry in result.get("result", []):
-            record = OrderDateRecord(
-                salesOrderId=SalesOrderIdData(entry.get("salesOrderId", {})),
-                fulfillmentId=FulfillmentIdData(entry.get("fulfillmentId", {}))
-            )
-            records.append(record)
-
-    # --- Handle "Sales_Order_id" with batching ---
-    if "Sales_Order_id" in filters:
-        url = path['FID']
-        sales_ids = list(map(str.strip, filters["Sales_Order_id"].split(",")))
-        for batch in chunk_list(sales_ids, 50):
-            payload = {
-                "query": fetch_salesorderf_query(json.dumps(batch))
-            }
-            response = requests.post(url, json=payload, verify=False)
-            data = response.json()
-            if "errors" in data:
-                return jsonify({"error": data["errors"]}), 500
-            result = data.get("data", {}).get("getBySalesorderids", {})
-            for entry in result.get("result", []):
-                record = SalesRecord(
-                    asnNumbers=[ASNNumber(**asn) for asn in entry.get("asnNumbers", [])],
-                    fulfillment=[Fulfillment(**ff) for ff in entry.get("fulfillment", [])],
-                    fulfillmentOrders=[FulfillmentOrder(**fo) for fo in entry.get("fulfillmentOrders", [])],
-                    salesOrderId=SalesOrder(**entry.get("salesOrder", {})),
-                    workOrders=[WorkOrder(**wo) for wo in entry.get("workOrders", [])]
-                )
-                records.append(record)
-
-    # --- Handle "Fullfillment Id" with batching ---
-    if "Fullfillment Id" in filters:
-        url = path['FID']
-        fulfillment_ids = list(map(str.strip, filters["Fullfillment Id"].split(",")))
-        for batch in chunk_list(fulfillment_ids, 50):
-            payload = {
-                "query": fetch_getByFulfillmentids_query(json.dumps(batch))
-            }
-            response = requests.post(url, json=payload, verify=False)
-            data = response.json()
-            if "errors" in data:
-                return jsonify({"error": data["errors"]}), 500
-            result = data.get("data", {}).get("getByFulfillmentids", {})
-            for entry in result.get("result", []):
-                record = FulfillmentRecord(
-                    asnNumbers=[ASNNumber(**asn) for asn in entry.get("asnNumbers", [])],
-                    fulfillment=Fulfillment(**entry.get("fulfillment", {})),
-                    fulfillmentOrders=[FulfillmentOrder(**fo) for fo in entry.get("fulfillmentOrders", [])],
-                    salesOrderId=SalesOrder(**entry.get("salesOrder", {})),
-                    workOrders=[WorkOrder(**wo) for wo in entry.get("workOrders", [])]
-                )
-                records.append(record)
-
-    # --- Handle "foid" with batching ---
-    if "foid" in filters:
-        url = path['FID']
-        fo_ids = list(map(str.strip, filters["foid"].split(",")))
-        for batch in chunk_list(fo_ids, 50):
-            payload = {
-                "query": fetch_getByFoid_query(json.dumps(batch))
-            }
-            response = requests.post(url, json=payload, verify=False)
-            data = response.json()
-            if "errors" in data:
-                return jsonify({"error": data["errors"]}), 500
-            result = data.get("data", {}).get("getByFoid", {})
-            for entry in result.get("result", []):
-                record = FulfillmentOrderRecord(
-                    fulfillmentOrders=[FulfillmentOrder(**fo) for fo in entry.get("fulfillmentOrders", [])],
-                    salesOrderId=SalesOrder(**entry.get("salesOrder", {})),
-                    fulfillment=[Fulfillment(**ff) for ff in entry.get("fulfillment", [])],
-                    workOrders=[WorkOrder(**wo) for wo in entry.get("workOrders", [])]
-                )
-                records.append(record)
-
-    # --- Handle "wo_id" with batching ---
-    if "wo_id" in filters:
-        url = path['FID']
-        wo_ids = list(map(str.strip, filters["wo_id"].split(",")))
-        for batch in chunk_list(wo_ids, 50):
-            payload = {
-                "query": fetch_getByWoId_query(json.dumps(batch))
-            }
-            response = requests.post(url, json=payload, verify=False)
-            data = response.json()
-            if "errors" in data:
-                return jsonify({"error": data["errors"]}), 500
-            result = data.get("data", {}).get("getByWoId", {})
-            for entry in result.get("result", []):
-                record = WorkOrderRecord(
-                    workOrders=[WorkOrder(**wo) for wo in entry.get("workOrders", [])],
-                    salesOrderId=SalesOrder(**entry.get("salesOrder", {})),
-                    fulfillment=[Fulfillment(**ff) for ff in entry.get("fulfillment", [])],
-                    fulfillmentOrders=[FulfillmentOrder(**fo) for fo in entry.get("fulfillmentOrders", [])]
-                )
-                records.append(record)
-
-    # --- Build GraphQL request list for async processing ---
-    graphql_request = []
-    countReqNo = 0
-    for obj in records:
-        countReqNo += 1
-
-        # Sales Order Id requests
-        if obj.salesOrderId and obj.salesOrderId.salesOrderId:
-            graphql_request.append({
-                "url": path['FID'],
-                "query": fetch_salesorder_query(json.dumps(obj.salesOrderId.salesOrderId))
-            })
-            print(f"[{countReqNo}] Sales Order: {obj.salesOrderId.salesOrderId}")
-
-        # Fulfillment Id requests
-        fulfillment_id = None
-        if hasattr(obj, "fulfillmentId"):
-            fulfillment_id = getattr(obj.fulfillmentId, "fulfillmentId", obj.fulfillmentId)
-        elif hasattr(obj, "fulfillment") and obj.fulfillment:
-            if isinstance(obj.fulfillment, Fulfillment):
-                fulfillment_id = obj.fulfillment.fulfillmentId
-            elif isinstance(obj.fulfillment, list) and isinstance(obj.fulfillment[0], Fulfillment):
-                fulfillment_id = obj.fulfillment[0].fulfillmentId
-
-        if fulfillment_id:
-            graphql_request.append({
-                "url": path['SOPATH'],
-                "query": fetch_fulfillmentf_query(json.dumps(fulfillment_id),
-                                                  json.dumps(obj.salesOrderId.salesOrderId))
-            })
-            graphql_request.append({
-                "url": path['FID'],
-                "query": fetch_getByFulfillmentids_query(json.dumps(fulfillment_id))
-            })
-            print(f"[{countReqNo}] Fulfillment ID: {fulfillment_id}")
-
-    # --- Run async requests ---
-    results = asyncio.run(run_all(graphql_request))
-    return results
+"columns": [            
+            {"value": "BUID", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "ID", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+            {"value": "PP Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "IP Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "MN Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "SC Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "CFI Flag", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Agreement Id", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value": "Amount", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Currency Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Customer Po Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Dp Id", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Location Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Order Age", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Order Amount usd", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Order Update Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Rate Usd Transactional", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Sales Rep Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Shipping Country", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Source System Status", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Tie Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Si Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Req Ship Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Reassigned Ip Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "RDD", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Product Lob", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Payment Term Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Ofs Status Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Ofs Status", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Fulfillment Status", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "DomsStatus", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Company Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Contact Type", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Special Instruction ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Special Instruction Type", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Shipping City Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "City", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "First Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Last Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "State Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Address Line1", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Address Line2", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Phone Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Postal Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Sales Order ID", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "ID", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+            {"value": "Fulfillment ID", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "ID", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+            {"value": "Region Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+            {"value": "Fo ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value": "Work Order ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value": "System Qty", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA"], "group": "Other", "checked": IsPrimary in ["APJ","EMEA"]},
+            {"value": "Ship By Date", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "Date", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+            {"value": "LOB", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA"], "group": "Other", "checked": IsPrimary in ["APJ","EMEA"]},
+            {"value": "Ship From Facility", "sortBy": "ascending", "isPrimary": IsPrimary in ["EMEA"], "group": "Facility", "checked": IsPrimary in ["EMEA"]},
+            {"value": "Ship To Facility", "sortBy": "ascending", "isPrimary": IsPrimary in ["EMEA"], "group": "Facility", "checked": IsPrimary in ["EMEA"]},
+            {"value": "Facility", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "Facility", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+            {"value": "ASN Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value": "Tax Regstrn Num", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+            {"value": "State Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+            {"value": "City Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+            {"value": "Customer Num", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+            {"value": "Customer Name Ext", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+            {"value": "Country", "sortBy": "ascending", "isPrimary": IsPrimary in ['APJ'], "group": "Address", "checked": IsPrimary in ['APJ']},
+            {"value": "Create Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Ship Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+            {"value": "Must Arrive By Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Update Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Merge Type", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Type", "checked": IsPrimary in []},
+            {"value": "Manifest Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Revised Delivery Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+            {"value": "Delivery City", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+            {"value": "Source System ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            # {"value": "Is Direct Ship", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Flag", "checked": IsPrimary in []},
+            # {"value": "SSC", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+            # {"value": "Vendor Work Order Num", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            # {"value": "Channel Status Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+            # {"value": "Ismultipack", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Flag", "checked": IsPrimary in []},
+            # {"value": "Ship Mode", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Mode", "checked": IsPrimary in []},
+            # {"value": "Is Otm Enabled", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Flag", "checked": IsPrimary in []},
+            {"value": "OIC ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+            {"value":"Order Date","sortBy":"ascending","isPrimary":IsPrimary in ["APJ","DAO","AMER","LA"],"group":"Date","checked":IsPrimary in ["APJ","DAO","AMER","LA"]}
