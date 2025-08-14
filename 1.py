@@ -610,16 +610,14 @@ def getPath(region):
         traceback.print_exc()
         return {}
 
-
-"getWorkOrderById/channel
+BuildFacility	"getWorkOrderById/channel
 getWorkOrderById/vendorSiteId"	WorkOrder	Derived based on config value and channel and kitting_facility and vendor_site_id
-getWorkOrderById/dellBlanketPoNum	WorkOrder	
-getWorkOrderById/woLines/woLineType	WorkOrder	Need to derive based on wo_line_type='SOFTWARE'
-getWorkOrderById/shipToFacility	WorkOrder	Need to derive based on SHIP_TO_FACILITY. It the value is havign CUST then Y else N
-"getWorkOrderById/woStatusList/channelStatusCode
+dellBlanketPoNum	getWorkOrderById/dellBlanketPoNum	WorkOrder	
+HasSoftware 	getWorkOrderById/woLines/woLineType	WorkOrder	Need to derive based on wo_line_type='SOFTWARE'
+IsLastLeg	getWorkOrderById/shipToFacility	WorkOrder	Need to derive based on SHIP_TO_FACILITY. It the value is havign CUST then Y else N
+MakeWoAck	"getWorkOrderById/woStatusList/channelStatusCode
 getWorkOrderById/woId
 getWorkOrderById/woType"	WorkOrder	"Need to derive based on wo_type = 'MAKE'
                     AND wsh.channel_status_code = 3000"
-"getWorkOrderById/woShipInstr/mergeFacility
+Mcid	"getWorkOrderById/woShipInstr/mergeFacility
 getWorkOrderById/woShipInstr/carrierHubCode"	WorkOrder	Select mergeFacility and if the value is null then carrierHubCode
-
