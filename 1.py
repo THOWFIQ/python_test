@@ -139,6 +139,7 @@ def mainfunction(filters, format_type, region):
         if "errors" in data:
             return jsonify({"error": data["errors"]}), 200
         result = data.get("data", {}).get("getOrdersByDate", {})
+        
         for entry in result.get("result", []):
             record = OrderDateRecord(
                 salesOrderId=SalesOrderIdData(entry.get("salesOrderId", {})),
@@ -173,6 +174,7 @@ def mainfunction(filters, format_type, region):
                     asn_url = path['ASNODM']
                     asn_payload = {
                         "query": fetch_AsnOrderByID_query(
+                            json.dumps(region),
                             json.dumps(ship_from_vendor_id),
                             json.dumps(source_manifest_id)
                         )
@@ -293,6 +295,7 @@ def mainfunction(filters, format_type, region):
                 graphql_request.append({
                     "url": path['ASNODM'],
                     "query": fetch_AsnOrderByID_query(
+                        json.dumps(region),
                         json.dumps(ship_from_vendor_id),
                         json.dumps(source_manifest_id))
                 })
@@ -339,35 +342,40 @@ def OutputFormat(result_map, format_type=None, region=None):
     try:
         # Extract blocks
         salesorders = list(map(
-            lambda item: item["data"]["getBySalesorderids"]["result"][0],
-            filter(lambda item: "getBySalesorderids" in item.get("data", {}), result_map)
+            lambda item: item, filter(lambda item: isinstance(item.get("data"), dict)
+             and "getBySalesorderids" in item["data"], result_map)
         ))
-
+        
         fulfillments_by_id = list(map(
-            lambda item: item["data"]["getFulfillmentsById"][0],
-            filter(lambda item: "getFulfillmentsById" in item.get("data", {}), result_map)
+            lambda item: item, filter(lambda item: isinstance(item.get("data"), dict) 
+            and "getFulfillmentsById" in item["data"], result_map)
         ))
 
         salesheaders_by_ids = list(map(
             lambda item: item["data"]["getSoheaderBySoids"][0],
-            filter(lambda item: "getSoheaderBySoids" in item.get("data", {}), result_map)
+            filter(lambda item: isinstance(item.get("data"), dict) and "getSoheaderBySoids" in item["data"], result_map)
         ))
-
+        
         VendormasterByVendor = list(map(
             lambda item: item["data"]["getVendormasterByVendorid"][0],
-            filter(lambda item: "getVendormasterByVendorid" in item.get("data", {}), result_map)
+            filter(lambda item: isinstance(item.get("data"), dict) and "getVendormasterByVendorid" in item["data"], result_map)
         ))
 
         ASNheaderByID = list(map(
             lambda item: item["data"]["getAsnHeaderById"][0],
-            filter(lambda item: "getAsnHeaderById" in item.get("data", {}), result_map)
+            filter(lambda item: isinstance(item.get("data"), dict) and "getAsnHeaderById" in item["data"], result_map)
         ))
 
         WorkOrderByID = list(map(
             lambda item: item["data"]["getWorkOrderById"][0],
-            filter(lambda item: "getWorkOrderById" in item.get("data", {}), result_map)
+            filter(lambda item: isinstance(item.get("data"), dict) and "getWorkOrderById" in item["data"], result_map)
         ))
 
+        ASNDetailById = list(map(
+            lambda item: item["data"]["getAsnDetailById"],
+            filter(lambda item: isinstance(item.get("data"), dict) and "getAsnDetailById" in item["data"], result_map)
+        ))
+        
         def listify(x):
             if x is None:
                 return []
@@ -402,18 +410,70 @@ def OutputFormat(result_map, format_type=None, region=None):
         # ---------- flat list ----------
         N = min(len(salesorders), len(fulfillments_by_id), len(salesheaders_by_ids))
         flat_list = []
-        for idx in range(N):            
+        for idx in range(N):
+            print("i'm coming")
+            print(safe_get(salesorders[idx], ['data', 'getBySalesorderids', 'result', 0, 'salesOrder', 'buid']))
+            exit()
             shipping_addr = pick_address_by_type(salesheaders_by_ids[idx], "SHIPPING")
             billing_addr = pick_address_by_type(salesheaders_by_ids[idx], "BILLING")
 
             ship_first = shipping_addr.get("firstName", "") if shipping_addr else ""
             ship_last = shipping_addr.get("lastName", "") if shipping_addr else ""
             shipping_contact_name = (f"{ship_first} {ship_last}").strip()
-            
-            
-            merge_facility = safe_get(WorkOrderByID, ['woShipInstr', 'mergeFacility']) if WorkOrderByID else ""
-            carrier_hub_code = safe_get(WorkOrderByID, ['woShipInstr', 'carrierHubCode']) if WorkOrderByID else ""
 
+            wo_lines = safe_get(WorkOrderByID[idx] if idx < len(WorkOrderByID) else {}, ['woLines'], default=[])
+            
+            has_software = any(
+                map(lambda line: safe_get(line, ['woLineType']) == 'SOFTWARE', wo_lines)
+            )
+
+            MakeWoAckValue = (
+                    "True" if WorkOrderByID and
+                    WorkOrderByID[idx].get('woType') == 'MAKE' and
+                    any(str(status.get('channelStatusCode')) == '3000' for status in WorkOrderByID[idx].get('woStatusList', []))
+                    else "False"
+                )
+            McidValue = (
+                WorkOrderByID[idx].get('woShipInstr', [{}])[0].get('mergeFacility')
+                if idx < len(WorkOrderByID) and WorkOrderByID[idx].get('woShipInstr', [{}])[0].get('mergeFacility')
+                else WorkOrderByID[idx].get('woShipInstr', [{}])[0].get('carrierHubCode', "") if idx < len(WorkOrderByID) else ""
+            )
+
+
+            box_details = safe_get(ASNDetailById[idx] if idx < len(ASNDetailById) else {}, ['manifestPallet', 0, 'woShipment', 0, 'woShipmentBox', 0, 'woShipmentBoxDetails'], default=[])
+
+            base_ppid = safe_get(box_details[0], ['basePpid']) if box_details else None
+            as_shipped_ppid = safe_get(box_details[0], ['asShippedPpid']) if box_details else None
+
+            make_man_dtls = safe_get(box_details[0], ['woMakeManDtl'], default=[]) if box_details else []
+            make_man_ppids = list(
+                filter(
+                    lambda ppid: ppid is not None,
+                    map(lambda detail: safe_get(detail, ['asShippedPpid']), make_man_dtls)
+                )
+            )
+
+            ppid_data = {
+                "BasePPID": base_ppid,
+                "AsShippedPPID": as_shipped_ppid,
+                "MakeManPPIDs": make_man_ppids
+            }
+
+            shipment_boxes = safe_get(ASNDetailById[idx] if idx < len(ASNDetailById) else {}, ['manifestPallet', 0, 'woShipment', 0, 'woShipmentBox'], default=[])
+            total_box_count = len(list(filter(
+                lambda box: safe_get(box, ['boxRef']) is not None,
+                shipment_boxes
+            )))
+
+            total_gross_weight = sum(filter(
+                lambda wt: wt is not None,
+                map(lambda box: safe_get(box, ['boxGrossWt'], default=0), shipment_boxes)
+            ))
+
+            total_volumetric_weight = sum(filter(
+                lambda wt: wt is not None,
+                map(lambda box: safe_get(box, ['boxVolWt'], default=0), shipment_boxes)
+            ))
 
             row = {
                 "BUID": safe_get(salesorders[idx], ['salesOrder', 'buid']),
@@ -447,7 +507,7 @@ def OutputFormat(result_map, format_type=None, region=None):
                 "Rate Usd Transactional": safe_get(salesheaders_by_ids[idx], ['rateUsdTransactional']),
                 "Sales Rep Name": safe_get(salesheaders_by_ids[idx], ['salesrep', 0, 'salesRepName']),
                 "Shipping Country": safe_get(salesheaders_by_ids[idx], ['address', 0, 'country']),
-                "Source System Status": safe_get(fulfillments_by_id[idx], ['sourceSystemId']),
+                "Source System Status": safe_get(fulfillments_by_id[idx], ['sourceSystemStsCode']),
                 "Tie Number": safe_get(fulfillments_by_id[idx], ['fulfillments', 0, 'salesOrderLines', 0, 'soLineNum']),
                 "Si Number": safe_get(fulfillments_by_id[idx], ['fulfillments', 0, 'salesOrderLines', 0, 'siNumber']),
                 "Req Ship Code": safe_get(fulfillments_by_id[idx], ['fulfillments', 0, 'shipCode']),
@@ -494,18 +554,26 @@ def OutputFormat(result_map, format_type=None, region=None):
                 "Destination":safe_get(ASNheaderByID[idx], ['shipToVendorSiteId']) if idx < len(ASNheaderByID) else "",
                 "Manifest ID":safe_get(ASNheaderByID[idx], ['sourceManifestId']) if idx < len(ASNheaderByID) else "",
                 "Origin":safe_get(ASNheaderByID[idx], ['shipFromVendorSiteId']) if idx < len(ASNheaderByID) else "",
-                "WaybillNumber":safe_get(ASNheaderByID[idx], ['airwayBillNum']) if idx < len(ASNheaderByID) else "",
-                "BuildFacility":"",
-                "dellBlanketPoNum":safe_get(WorkOrderByID[idx], ['dellBlanketPoNum']) if WorkOrderByID else "",
-                "HasSoftware":"",
-                "IsLastLeg": safe_get(WorkOrderByID[idx], ['shipToFacility']) if WorkOrderByID else "",
-                "MakeWoAck":"",
-                "Mcid":"",
-                "ShipFromMcid":safe_get(WorkOrderByID[idx], ['vendorSiteId']) if WorkOrderByID else "",
-                "ShipToMcid":safe_get(WorkOrderByID[idx], ['shipToFacility']) if WorkOrderByID else "",
-                "WoOtmEnable":safe_get(WorkOrderByID[idx], ['isOtmEnabled']) if WorkOrderByID else "",
-                "WorkOrder":safe_get(WorkOrderByID[idx], ['woId']) if WorkOrderByID else "",
-                "WoShipMode":safe_get(WorkOrderByID[idx], ['shipMode']) if WorkOrderByID else "",
+                "Way bill Number":safe_get(ASNheaderByID[idx], ['airwayBillNum']) if idx < len(ASNheaderByID) else "",
+                "Build Facility":"",
+                "dell Blanket Po Num":safe_get(WorkOrderByID[idx], ['dellBlanketPoNum']) if WorkOrderByID else "",
+                "Has Software":has_software,
+                "Is Last Leg": safe_get(WorkOrderByID[idx], ['shipToFacility']) if WorkOrderByID else "",                
+                "Make WoAck": MakeWoAckValue,                
+                "Mcid": McidValue,
+                "Ship From Mcid":safe_get(WorkOrderByID[idx], ['vendorSiteId']) if WorkOrderByID else "",
+                "Ship To Mcid":safe_get(WorkOrderByID[idx], ['shipToFacility']) if WorkOrderByID else "",
+                "Wo Otm Enable":safe_get(WorkOrderByID[idx], ['isOtmEnabled']) if WorkOrderByID else "",
+                "Work Order":safe_get(WorkOrderByID[idx], ['woId']) if WorkOrderByID else "",
+                "Wo Ship Mode":safe_get(WorkOrderByID[idx], ['shipMode']) if WorkOrderByID else "",
+                "Actual Ship Code": safe_get(ASNDetailById[idx], ['manifestPallet', 0, 'woShipment', 0, 'woShipmentBox', 0, 'shipviaCode']) if ASNDetailById else "",
+                "Order Vol Wt": safe_get(ASNDetailById[idx], ['manifestPallet', 0, 'woShipment', 0, 'woShipmentBox', 0, 'boxVolWt']) if ASNDetailById else "",
+                "PP ID": base_ppid,
+                "Svc Tag": safe_get(ASNDetailById[idx], ['manifestPallet', 0, 'woShipment', 0, 'woShipmentBox', 0, 'woShipmentBoxDetails', 0, 'serviceTag']) if ASNDetailById else "",
+                "Target Delivery Date": safe_get(ASNDetailById[idx], ['manifestPallet', 0, 'woShipment', 0, 'estDeliveryDate']) if ASNDetailById else "",
+                "Total Box Count": total_box_count,
+                "Total Gross Weight": total_gross_weight,
+                "Total Volumetric Weight": total_volumetric_weight
             }
             flat_list.append(row)
 
@@ -531,9 +599,11 @@ def OutputFormat(result_map, format_type=None, region=None):
                     "Ship From Facility","Ship To Facility","Facility","ASN Number","Tax Regstrn Num","State Code","City Code",
                     "Customer Num","Customer Name Ext","Country","Create Date","Ship Code","Must Arrive By Date","Update Date",
                     "Merge Type","Manifest Date","Revised Delivery Date","Delivery City","Source System ID","OIC ID","Order Date",
-                    "Actual Ship Mode","First Leg Ship Mode","Asn","Destination","Manifest ID","Origin","WaybillNumber",
-                    "BuildFacility","dellBlanketPoNum","HasSoftware","IsLastLeg","MakeWoAck","Mcid","ShipFromMcid",
-                    "ShipToMcid","WoOtmEnable","WorkOrder","WoShipMode"
+                    "Actual Ship Mode","First Leg Ship Mode","Asn","Destination","Manifest ID","Origin","Way bill Number",
+                    "Build Facility","dell Blanket Po Num","Has Software","Is Last Leg","Make Wo Ack","Mcid","Ship From Mcid",
+                    "Ship To Mcid","Wo Otm Enable","Work Order","Wo Ship Mode",
+                    "Actual Ship Code","Order Vol Wt","PP ID","Svc Tag","Target Delivery Date","Total Box Count","Total Gross Weight",
+                    "Total Volumetric Weight"
                 ]
 
                 rows = []
@@ -551,16 +621,27 @@ def OutputFormat(result_map, format_type=None, region=None):
         traceback.print_exc()
         return {"error": str(e)}
 
-def safe_get(data, path, default=""):    
+def safe_get(data, path, default=""):
     try:
         for key in path:
+            print(f"Accessing key: {key} in data: {data}")
+            if data is None:
+                return default
             if isinstance(key, int):
-                data = data[key]
+                if isinstance(data, list) and 0 <= key < len(data):
+                    data = data[key]
+                else:
+                    return default
+            elif isinstance(data, dict):
+                data = data.get(key)
             else:
-                data = data.get(key, {})
-        return str(data) if data != {} else default
-    except (IndexError, KeyError, TypeError):
-        return str(default)
+                return default
+        return data if data is not None else default
+    except (IndexError, KeyError, TypeError) as e:
+        print(f"safe_get error: {e}")
+        return default
+
+
 
 def dateFormation(unformatedDate):
     if unformatedDate not in [None, "", "null"]:
@@ -610,14 +691,3 @@ def getPath(region):
         traceback.print_exc()
         return {}
 
-BuildFacility	"getWorkOrderById/channel
-getWorkOrderById/vendorSiteId"	WorkOrder	Derived based on config value and channel and kitting_facility and vendor_site_id
-dellBlanketPoNum	getWorkOrderById/dellBlanketPoNum	WorkOrder	
-HasSoftware 	getWorkOrderById/woLines/woLineType	WorkOrder	Need to derive based on wo_line_type='SOFTWARE'
-IsLastLeg	getWorkOrderById/shipToFacility	WorkOrder	Need to derive based on SHIP_TO_FACILITY. It the value is havign CUST then Y else N
-MakeWoAck	"getWorkOrderById/woStatusList/channelStatusCode
-getWorkOrderById/woId
-getWorkOrderById/woType"	WorkOrder	"Need to derive based on wo_type = 'MAKE'
-                    AND wsh.channel_status_code = 3000"
-Mcid	"getWorkOrderById/woShipInstr/mergeFacility
-getWorkOrderById/woShipInstr/carrierHubCode"	WorkOrder	Select mergeFacility and if the value is null then carrierHubCode
