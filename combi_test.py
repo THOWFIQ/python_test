@@ -2,50 +2,23 @@ import json
 
 flatt_list = []
 
-# Prepare a mapping of Sales Order ID to related data
-records_by_soid = {}
-
-# Map Sales Orders
-for so in salesorders:
-    soid = safe_get(so, ['salesOrder', 'salesOrderId'])
-    records_by_soid[soid] = {"salesorder": so}
-
-# Map Fulfillments to Sales Orders
-for ff in fulfillments_by_id:
-    soid = safe_get(ff, ['salesOrderId'])
-    if soid in records_by_soid:
-        records_by_soid[soid]["fulfillment"] = ff
-
-# Map Sales Headers
-for sh in salesheaders_by_ids:
-    soid = safe_get(sh, ['salesOrderId'])
-    if soid in records_by_soid:
-        records_by_soid[soid]["salesheader"] = sh
-
-# Map Vendors (assume vendorSiteId relates to sales order or fulfillment)
+# Create lookup maps for easy access
+workorder_map = {w.get("woId"): w for w in WorkOrderByID}
+asnheader_map = {a.get("asnId"): a for a in ASNheaderByID}
+asn_detail_map = {ad.get("asnId"): ad for ad in ASNDetailById}
 vendor_map = {v.get("vendorSiteId"): v for v in VendormasterByVendor}
 
-# Map ASN Headers
-asnheader_map = {a.get("asnId"): a for a in ASNheaderByID}
-
-# Map Work Orders
-workorder_map = {w.get("woId"): w for w in WorkOrderByID}
-
-# Map ASN Details
-asn_detail_map = {ad.get("asnId"): ad for ad in ASNDetailById}
-
-# Flatten each Sales Order record
-for soid, record in records_by_soid.items():
-    so = record.get("salesorder", {})
-    ff = record.get("fulfillment", {})
-    sh = record.get("salesheader", {})
+for so in salesorders:
+    soid = safe_get(so, ['salesOrder', 'salesOrderId'])
+    ff = next((f for f in fulfillments_by_id if safe_get(f, ['salesOrderId'])==soid), {})
+    sh = next((s for s in salesheaders_by_ids if safe_get(s, ['salesOrderId'])==soid), {})
 
     shipping_addr = pick_address_by_type(sh, "SHIPPING") if sh else {}
     billing_addr = pick_address_by_type(sh, "BILLING") if sh else {}
 
-    # Sales Order basic info
     row = {
-        "Sales Order ID": safe_get(so, ['salesOrder', 'salesOrderId']),
+        # Sales Order info
+        "Sales Order ID": soid,
         "BUID": safe_get(so, ['salesOrder', 'buid']),
         "Region Code": safe_get(so, ['salesOrder', 'region']),
         "FO ID": safe_get(so, ['fulfillmentOrders', 0, 'foId']),
@@ -53,6 +26,21 @@ for soid, record in records_by_soid.items():
         "Ship From Facility": safe_get(so, ['asnNumbers', 0, 'shipFrom']),
         "Ship To Facility": safe_get(so, ['asnNumbers', 0, 'shipTo']),
         "SN Number": safe_get(so, ['asnNumbers', 0, 'snNumber']),
+
+        # Sales Header info
+        "Agreement ID": safe_get(sh, ['agreementId']),
+        "Amount": safe_get(sh, ['totalPrice']),
+        "Currency Code": safe_get(sh, ['currency']),
+        "Customer Po Number": safe_get(sh, ['poNumber']),
+        "Dp ID": safe_get(sh, ['dpid']),
+        "Location Number": safe_get(sh, ['locationNum']),
+        "Order Age": safe_get(sh, ['orderDate']),
+        "Order Amount usd": safe_get(sh, ['rateUsdTransactional']),
+        "Order Update Date": safe_get(sh, ['updateDate']),
+        "Sales Rep Name": safe_get(sh, ['salesrep', 0, 'salesRepName']),
+        "Shipping Country": safe_get(shipping_addr, ['country']),
+        "Create Date": dateFormation(safe_get(sh, ['createDate'])),
+        "Order Date": dateFormation(safe_get(sh, ['orderDate'])),
     }
 
     # Fulfillment info
@@ -84,43 +72,24 @@ for soid, record in records_by_soid.items():
             "Manifest Date": dateFormation(safe_get(ff, ['fulfillments', 0, 'manifestDate'])),
         })
 
-    # Sales Header info
-    if sh:
-        row.update({
-            "Agreement ID": safe_get(sh, ['agreementId']),
-            "Amount": safe_get(sh, ['totalPrice']),
-            "Currency Code": safe_get(sh, ['currency']),
-            "Customer Po Number": safe_get(sh, ['poNumber']),
-            "Dp ID": safe_get(sh, ['dpid']),
-            "Location Number": safe_get(sh, ['locationNum']),
-            "Order Age": safe_get(sh, ['orderDate']),
-            "Order Amount usd": safe_get(sh, ['rateUsdTransactional']),
-            "Order Update Date": safe_get(sh, ['updateDate']),
-            "Sales Rep Name": safe_get(sh, ['salesrep', 0, 'salesRepName']),
-            "Shipping Country": safe_get(shipping_addr, ['country']),
-            "Create Date": dateFormation(safe_get(sh, ['createDate'])),
-            "Order Date": dateFormation(safe_get(sh, ['orderDate'])),
-        })
-
-    # Add Vendor info if applicable (example: take first vendor)
-    if VendormasterByVendor:
-        vendor = VendormasterByVendor[0]
-        row["CFI Flag"] = safe_get(vendor, ['isCfi'], default="N")
-
-    # Add Work Order info if applicable
+    # Work Order info
     wo_id = safe_get(so, ['workOrders', 0, 'woId'])
     if wo_id and wo_id in workorder_map:
         wo = workorder_map[wo_id]
         wo_lines = safe_get(wo, ['woLines'], default=[])
         has_software = any(safe_get(line, ['woLineType'])=='SOFTWARE' for line in wo_lines)
+        MakeWoAckValue = "True" if wo.get('woType')=='MAKE' and any(str(status.get('channelStatusCode'))=='3000' for status in wo.get('woStatusList', [])) else "False"
+        McidValue = wo.get('woShipInstr', [{}])[0].get('mergeFacility') or wo.get('woShipInstr', [{}])[0].get('carrierHubCode', "")
         row.update({
-            "Dell Blanket Po Num": safe_get(wo, ['dellBlanketPoNum'], default=""),
+            "Dell Blanket Po Num": safe_get(wo, ['dellBlanketPoNum'], ""),
             "Has Software": has_software,
+            "Make WoAck": MakeWoAckValue,
+            "Mcid": McidValue,
             "Work Order": wo_id,
-            "Wo Ship Mode": safe_get(wo, ['shipMode'], default=""),
+            "Wo Ship Mode": safe_get(wo, ['shipMode'], ""),
         })
 
-    # Add ASN info if applicable
+    # ASN Header info
     asn_id = safe_get(ff, ['asnNumbers', 0, 'asnId'])
     if asn_id and asn_id in asnheader_map:
         asn = asnheader_map[asn_id]
@@ -132,19 +101,46 @@ for soid, record in records_by_soid.items():
             "Way Bill Number": safe_get(asn, ['airwayBillNum']),
         })
 
-    # Add ASN Detail info if applicable
+    # ASN Detail info
     if asn_id and asn_id in asn_detail_map:
         ad = asn_detail_map[asn_id]
-        box_details = safe_get(ad, ['manifestPallet', 0, 'woShipment', 0, 'woShipmentBox', 0, 'woShipmentBoxDetails'], default=[])
-        base_ppid = safe_get(box_details[0], ['basePpid']) if box_details else None
+        shipment_boxes = safe_get(ad, ['manifestPallet', 0, 'woShipment', 0, 'woShipmentBox'], default=[])
+        total_box_count = len(shipment_boxes)
+        total_gross_weight = sum(safe_get(box, ['boxGrossWt'], 0) for box in shipment_boxes)
+        total_volumetric_weight = sum(safe_get(box, ['boxVolWt'], 0) for box in shipment_boxes)
+
+        # PPIDs
+        box_details = safe_get(shipment_boxes[0] if shipment_boxes else {}, ['woShipmentBoxDetails'], default=[])
+        base_ppid = safe_get(box_details[0], ['basePpid']) if box_details else ""
+        as_shipped_ppid = safe_get(box_details[0], ['asShippedPpid']) if box_details else ""
+        make_man_dtls = safe_get(box_details[0], ['woMakeManDtl'], default=[]) if box_details else []
+        make_man_ppids = [safe_get(d, ['asShippedPpid']) for d in make_man_dtls if safe_get(d, ['asShippedPpid'])]
+
+        svc_tag = safe_get(box_details[0], ['serviceTag']) if box_details else ""
+        target_delivery_date = safe_get(shipment_boxes[0], ['estDeliveryDate']) if shipment_boxes else ""
+        actual_ship_code = safe_get(shipment_boxes[0], ['shipviaCode']) if shipment_boxes else ""
+        order_vol_wt = safe_get(shipment_boxes[0], ['boxVolWt']) if shipment_boxes else ""
+
         row.update({
-            "PP ID": base_ppid,
-            "AsShippedPPID": safe_get(box_details[0], ['asShippedPpid']) if box_details else None,
-            "Total Box Count": len(safe_get(ad, ['manifestPallet', 0, 'woShipment', 0, 'woShipmentBox'], default=[]))
+            "BasePPID": base_ppid,
+            "AsShippedPPID": as_shipped_ppid,
+            "MakeManPPIDs": make_man_ppids,
+            "Svc Tag": svc_tag,
+            "Target Delivery Date": target_delivery_date,
+            "Actual Ship Code": actual_ship_code,
+            "Order Vol Wt": order_vol_wt,
+            "Total Box Count": total_box_count,
+            "Total Gross Weight": total_gross_weight,
+            "Total Volumetric Weight": total_volumetric_weight,
         })
+
+    # Vendor info
+    if VendormasterByVendor:
+        vendor = VendormasterByVendor[0]
+        row["CFI Flag"] = safe_get(vendor, ['isCfi'], "N")
 
     flatt_list.append(row)
 
-# Output
+# Output final flattened list
 print(json.dumps(flatt_list, indent=2))
 exit()
