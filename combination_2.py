@@ -57,3 +57,17 @@ for item in result_map:
             "MCID Value": McidValue
         }
         flat_list.append(wo_row)
+
+for idx, item in enumerate(result_map):
+    print("Item index:", idx, "type:", type(item))
+    if not isinstance(item, dict):
+        print("Skipping non-dict item:", item)
+        continue
+
+    data = item.get("data")
+    if not data:
+        print("No 'data' key in item:", item)
+        continue
+
+    print("break point - data exists")
+
