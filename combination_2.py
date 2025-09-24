@@ -9,22 +9,24 @@ def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None
             if not data or not isinstance(data, dict):
                 return None
 
+            # Check SO from SO IDs
             soids_data = data.get("getSalesOrderBySoids")
-            if soids_data:
-                sales_orders = soids_data.get("salesOrders")
-                if sales_orders:
-                    return sales_orders
+            if soids_data and soids_data.get("salesOrders"):
+                return soids_data.get("salesOrders")
 
+            # Check SO from FF IDs
             ffids_data = data.get("getSalesOrderByFfids")
-            if ffids_data:
-                sales_orders = ffids_data.get("salesOrders")
-                if sales_orders:
-                    return sales_orders
+            if ffids_data and ffids_data.get("salesOrders"):
+                return ffids_data.get("salesOrders")
 
-            return None
+            # New: if your main function returns directly as "result"
+            if "result" in data and isinstance(data["result"], list):
+                return data["result"]
+
+            return []
 
         for item in result_map:
-            data = item.get("data")
+            data = item.get("data") or item  # handle raw result if no "data" key
             if not data:
                 continue
 
@@ -36,37 +38,30 @@ def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None
                 fulfillments = listify(safe_get(so, ['fulfillments']))
                 workorders = listify(safe_get(so, ['workOrders']))
 
+                # Track valid IDs
                 if filtersValue:
                     sales_order_id = safe_get(so, ['salesOrderId'])
                     if region and region.upper() == safe_get(so, ['region'], "").upper():
                         ValidCount.append(sales_order_id)
 
+                # Region filter
                 if region and region.upper() != safe_get(so, ['region'], "").upper():
                     continue
 
+                # Shipping / Billing addresses
                 shipping_addr = pick_address_by_type(so, "SHIPPING")
                 shipping_phone = pick_address_by_type(fulfillments[0], "SHIPPING") if fulfillments else {}
                 billing_addr = pick_address_by_type(so, "BILLING")
                 shipping_contact_name = shipping_addr.get("fullName", "") if shipping_addr else ""
 
-                lob_list = list(filter(
-                    lambda lob: lob is not None and lob.strip() != "",
-                    map(
-                        lambda line: safe_get(line, ['lob']),
-                        safe_get(fulfillments, [0,'salesOrderLines']) or []
-                    )
-                ))
+                # LOB & Facility
+                lob_list = list(filter(None, [safe_get(line, ['lob']) for line in safe_get(fulfillments, [0, 'salesOrderLines']) or []]))
                 lob = ", ".join(lob_list)
 
-                facility_list = list(filter(
-                    lambda facility: facility is not None and facility.strip() != "",
-                    map(
-                        lambda line: safe_get(line, ['facility']),
-                        safe_get(fulfillments, [0,'salesOrderLines']) or []
-                    )
-                ))
+                facility_list = list(filter(None, [safe_get(line, ['facility']) for line in safe_get(fulfillments, [0, 'salesOrderLines']) or []]))
                 facility = ", ".join(dict.fromkeys(f.strip() for f in facility_list if f and f.strip()))
 
+                # Status date function
                 def get_status_date(code):
                     status_code = safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode'])
                     if status_code == code:
@@ -105,8 +100,7 @@ def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None
                     "ShipToAddress1": shipping_addr.get("addressLine1", "") if shipping_addr else "",
                     "ShipToAddress2": shipping_addr.get("addressLine2", "") if shipping_addr else "",
                     "ShipToCompany": shipping_addr.get("companyName", "") if shipping_addr else "",
-                    "ShipToPhone": (listify(shipping_phone.get("phone", []))[0].get("phoneNumber", "")
-                                    if shipping_phone and listify(shipping_phone.get("phone", [])) else ""),
+                    "ShipToPhone": (listify(shipping_phone.get("phone", []))[0].get("phoneNumber", "") if shipping_phone and listify(shipping_phone.get("phone", [])) else ""),
                     "ShipToPostal": shipping_addr.get("postalCode", "") if shipping_addr else "",
                     "Order Age": safe_get(so, ['orderDate']),
                     "Order Amount usd": safe_get(so, ['rateUsdTransactional']),
@@ -139,7 +133,6 @@ def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None
                     "Order Date": dateFormation(safe_get(so, ['orderDate'])),
                     "Order Type": dateFormation(safe_get(so, ['orderType']))
                 }
-
                 flat_list.append(row)
 
                 # ------------------- Work Orders Rows -------------------
@@ -166,46 +159,33 @@ def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None
                         "WO_ID": WO_ID,
                         "DellBlanketPoNum": DellBlanketPoNum,
                         "Ship To Facility": ship_to_facility,
-                        "IsLastLeg": IsLastLeg,
-                        "ShipFromMcid": ShipFromMcid,
-                        "WoOtmEnable": WoOtmEnable,
-                        "WoShipMode": WoShipMode,
-                        "ismultipack": ismultipack,
-                        "has_software": has_software,
-                        "MakeWoAckValue": MakeWoAckValue,
-                        "McidValue": McidValue
+                        "Is Last Leg": IsLastLeg,
+                        "Ship From MCID": ShipFromMcid,
+                        "Otm Enabled": WoOtmEnable,
+                        "Ship Mode": WoShipMode,
+                        "Is Multipack": ismultipack,
+                        "Has Software": has_software,
+                        "Make WO Ack": MakeWoAckValue,
+                        "MCID Value": McidValue
                     }
-
                     flat_list.append(wo_row)
 
         count_valid = len(ValidCount)
-
         if not flat_list:
             return {"error": "No Data Found"}
 
-        if len(flat_list) > 0:
-            if format_type == "export":
-                if filtersValue:
-                    data = []
-                    count = {"Count ": count_valid}
-                    data.append(count)
-                    data.append(flat_list)
-                    ValidCount.clear()
-                    return data
-                else:
-                    return flat_list
-            elif format_type == "grid":
-                desired_order = list(flat_list[0].keys())  # Keep same order as in flat_list
-                rows = []
-                for item in flat_list:
-                    reordered_values = [item.get(key, "") for key in desired_order]
-                    row = {"columns": [{"value": val if val is not None else ""} for val in reordered_values]}
-                    rows.append(row)
-                table_grid_output = tablestructural(rows, region) if rows else []
-                if filtersValue:
-                    table_grid_output["Count"] = count_valid
-                ValidCount.clear()
-                return table_grid_output
+        if format_type == "export":
+            data = []
+            if filtersValue:
+                data.append({"Count ": count_valid})
+            data.append(flat_list)
+            ValidCount.clear()
+            return data
+        elif format_type == "grid":
+            # Optional: prepare for table/grid output
+            return flat_list
+
+        return flat_list
 
     except Exception as e:
         return {"error": str(e)}
