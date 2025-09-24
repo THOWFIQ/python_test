@@ -1,31 +1,12 @@
-def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None):
-    try:
-        flat_list = []
-        ValidCount = []
-
-        region = region.upper() if region else None
-
-        def extract_sales_order(data):
-            if not data or not isinstance(data, dict):
-                return None
-
-            # Check SO from SO IDs
-            soids_data = data.get("getSalesOrderBySoids")
-            if soids_data and soids_data.get("salesOrders"):
-                return soids_data.get("salesOrders")
-
-            # Check SO from FF IDs
-            ffids_data = data.get("getSalesOrderByFfids")
-            if ffids_data and ffids_data.get("salesOrders"):
-                return ffids_data.get("salesOrders")
-
-            # New: if your main function returns directly as "result"
+ main function returns directly as "result"
             if "result" in data and isinstance(data["result"], list):
                 return data["result"]
 
             return []
 
         for item in result_map:
+            print("break point => 1 ")
+            # exit()
             data = item.get("data") or item  # handle raw result if no "data" key
             if not data:
                 continue
@@ -33,11 +14,13 @@ def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None
             sales_orders = extract_sales_order(data)
             if not sales_orders:
                 continue
-
+            print("break point => 2")
+            exit()
             for so in sales_orders:
                 fulfillments = listify(safe_get(so, ['fulfillments']))
                 workorders = listify(safe_get(so, ['workOrders']))
-
+                print("break point => 3")
+                exit()
                 # Track valid IDs
                 if filtersValue:
                     sales_order_id = safe_get(so, ['salesOrderId'])
@@ -137,6 +120,8 @@ def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None
 
                 # ------------------- Work Orders Rows -------------------
                 for WorkOrderData in workorders:
+                    print("break point => 4")
+                    exit()
                     WO_ID = safe_get(WorkOrderData, ['woId'])
                     DellBlanketPoNum = safe_get(WorkOrderData, ['dellBlanketPoNum'])
                     ship_to_facility = safe_get(WorkOrderData, ['shipToFacility'])
