@@ -1,39 +1,27 @@
-Column Name	Contact Type
-BillingCustomerName	BILLING
-CustomerName	SHIPPING
-InstallInstruction2	ATTRIBUTE_NAME = 'INSTALL_INSTR2'
-ShippingCityCode	SHIPPING
-ShippingContactName	SHIPPING
-ShippingCustName	SHIPPING
-ShippingStateCode	SHIPPING
-ShipToAddress1	SHIPPING
-ShipToAddress2	SHIPPING
-ShipToCompany	SHIPPING
-ShipToPhone	SHIPPING
-ShipToPostal	SHIPPING
+The above is fully working code consider this is  main file
 
-BillingCustomerName	getSoheaderBySoids/address/companyName
-getSoheaderBySoids/address/contact/contactType
-CustomerName	getSoheaderBySoids/address/companyName
-getSoheaderBySoids/address/contact/contactType
-InstallInstruction2	getFulfillmentsById/salesOrderLines/specialinstructions/specialInstructionId
-getFulfillmentsById/salesOrderLines/specialinstructions/specialInstructionType
-ShippingCityCode	getSoheaderBySoids/address/cityCode
-getSoheaderBySoids/address/contact/contactType
-ShippingContactName	getSoheaderBySoids/address/firstName
-getSoheaderBySoids/address/lastName
-getSoheaderBySoids/address/contact/contactType
-ShippingCustName	getSoheaderBySoids/address/companyName
-getSoheaderBySoids/address/contact/contactType
-ShippingStateCode	getSoheaderBySoids/address/stateCode
-getSoheaderBySoids/address/contact/contactType
-ShipToAddress1	getSoheaderBySoids/address/addressLine1
-getSoheaderBySoids/address/contact/contactType
-ShipToAddress2	getSoheaderBySoids/address/addressLine2
-getSoheaderBySoids/address/contact/contactType
-ShipToCompany	getSoheaderBySoids/address/companyName
-getSoheaderBySoids/address/contact/contactType
-ShipToPhone	getSoheaderBySoids/address/contact/contactType
-getSoheaderBySoids/address/phone/phoneNumber
-ShipToPostal	getSoheaderBySoids/address/postalCode
-getSoheaderBySoids/address/contact/contactType
+The cfollowing code is query its in separate file 
+
+now the Logic want to update 
+
+the initially we prepare the working code 
+
+based on the Sales order id or Fullfillment id 
+
+Now want to Impletement work order id but here chellanges 
+
+what mean Salesorder id and Fullfillment id coming from  this URL SALESFULLFILLMENT
+funtion is Fullmentid coming mean this function fetch_Fullfillment_query
+funtion is Salesorder id coming mean this function fetch_salesOrder_query
+
+but work order id comign from WORKORDER 
+funtion is workorder id coming mean this function fetch_workOrder_query
+
+there is no foriegn is there have to identify mean 
+
+we have to call this url FID 
+funtion is fullment coming mean  this fetch_keysphereFullfillment_query
+function is salesorder coming mean this fetch_keysphereSalesorder_query
+function is workorder coming mean this fetch_keysphereWorkorder_query
+
+this FID URL and funtion is relating above data 
