@@ -184,3 +184,143 @@ def outputformat(result_map, format_type=None, filtersValue=None, region=None):
     except Exception as e:
         return {"error": str(e)}
 
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+def OutputFormat(result_map, format_type=None, filtersValue=None, region=None):
+    try:
+        flat_list = []
+        ValidCount = []
+
+        # Only use GraphQL results
+        graphql_details = result_map.get("graphql_details", [])
+
+        for item_index, item in enumerate(graphql_details):
+            if not isinstance(item, dict):
+                print(f"Item index: {item_index} type: {type(item)}")
+                print(f"Skipping non-dict item: {item}")
+                continue
+
+            data = item.get("data")
+            if not data:
+                continue
+
+            # ------------------- Sales Orders -------------------
+            sales_orders = data.get("getSalesOrderBySoids", {}).get("salesOrders", [])
+            for so in sales_orders:
+                fulfillments = so.get("fulfillments", [])
+                workorders = data.get("getWorkOrderByWoIds", [])  # Work Orders for this Sales Order
+
+                # Track valid Sales Order IDs
+                if filtersValue:
+                    sales_order_id = so.get("salesOrderId")
+                    if region and region.upper() == so.get("region", "").upper():
+                        ValidCount.append(sales_order_id)
+
+                # Region filter
+                if region and region.upper() != so.get("region", "").upper():
+                    continue
+
+                # ------------------- Sales Order + Fulfillment Rows -------------------
+                shipping_addr = next(
+                    (addr for addr in so.get("address", []) if any(c.get("contactType") == "SHIPPING" for c in addr.get("contact", []))),
+                    {}
+                )
+                billing_addr = next(
+                    (addr for addr in so.get("address", []) if any(c.get("contactType") == "BILLING" for c in addr.get("contact", []))),
+                    {}
+                )
+
+                for fulfillment in fulfillments:
+                    def get_status_date(code):
+                        status_code = next(iter([s.get("sourceSystemStsCode") for s in fulfillment.get("soStatus", [])]), None)
+                        if status_code == code:
+                            return next(iter([s.get("statusDate") for s in fulfillment.get("soStatus", [])]), "")
+                        return ""
+
+                    lob_list = [line.get("lob") for line in fulfillment.get("salesOrderLines", []) if line.get("lob")]
+                    facility_list = [line.get("facility") for line in fulfillment.get("salesOrderLines", []) if line.get("facility")]
+
+                    row = {
+                        "Fulfillment ID": fulfillment.get("fulfillmentId"),
+                        "BUID": so.get("buid"),
+                        "BillingCustomerName": billing_addr.get("companyName", ""),
+                        "CustomerName": shipping_addr.get("companyName", ""),
+                        "LOB": ", ".join(lob_list),
+                        "Sales Order ID": so.get("salesOrderId"),
+                        "Agreement ID": so.get("agreementId"),
+                        "Amount": so.get("totalPrice"),
+                        "Currency Code": so.get("currency"),
+                        "Customer Po Number": so.get("poNumber"),
+                        "Delivery City": fulfillment.get("deliveryCity"),
+                        "DOMS Status": next(iter([s.get("sourceSystemStsCode") for s in fulfillment.get("soStatus", [])]), ""),
+                        "Dp ID": so.get("dpid"),
+                        "Fulfillment Status": next(iter([s.get("fulfillmentStsCode") for s in fulfillment.get("soStatus", [])]), ""),
+                        "Merge Type": fulfillment.get("mergeType"),
+                        "InstallInstruction2": "",  # Add if needed
+                        "PP Date": get_status_date("PP"),
+                        "IP Date": get_status_date("IP"),
+                        "MN Date": get_status_date("MN"),
+                        "SC Date": get_status_date("SC"),
+                        "Location Number": so.get("locationNum"),
+                        "ShippingCityCode": shipping_addr.get("cityCode", ""),
+                        "ShippingContactName": shipping_addr.get("fullName", ""),
+                        "Facility": ", ".join(facility_list),
+                        "Region Code": so.get("region"),
+                        "Order Date": so.get("orderDate"),
+                        "Order Type": so.get("orderType")
+                        # Add any other fields exactly as in your original code
+                    }
+                    flat_list.append(row)
+
+                # ------------------- Work Orders -------------------
+                for WorkOrderData in workorders:
+                    WO_ID = WorkOrderData.get('woId')
+                    DellBlanketPoNum = WorkOrderData.get('dellBlanketPoNum')
+                    ship_to_facility = WorkOrderData.get('shipToFacility')
+                    IsLastLeg = 'Y' if ship_to_facility and 'CUST' in ship_to_facility.upper() else 'N'
+                    ShipFromMcid = WorkOrderData.get('vendorSiteId')
+                    WoOtmEnable = WorkOrderData.get('isOtmEnabled')
+                    WoShipMode = WorkOrderData.get('shipMode')
+                    wo_lines = WorkOrderData.get('woLines', [])
+                    ismultipack = wo_lines[0].get("ismultipack") if wo_lines else ""
+                    has_software = any(line.get('woLineType') == 'SOFTWARE' for line in wo_lines)
+                    MakeWoAckValue = next(
+                        (status.get("statusDate") for status in WorkOrderData.get("woStatusList", [])
+                         if str(status.get("channelStatusCode")) == "3000" and WorkOrderData.get("woType") == "MAKE"),
+                        ""
+                    )
+                    McidValue = (
+                        WorkOrderData.get('woShipInstr', [{}])[0].get('mergeFacility') or
+                        WorkOrderData.get('woShipInstr', [{}])[0].get('carrierHubCode', "")
+                    )
+
+                    wo_row = {
+                        "Sales Order ID": so.get("salesOrderId"),
+                        "WO_ID": WO_ID,
+                        "DellBlanketPoNum": DellBlanketPoNum,
+                        "Ship To Facility": ship_to_facility,
+                        "Is Last Leg": IsLastLeg,
+                        "Ship From MCID": ShipFromMcid,
+                        "Otm Enabled": WoOtmEnable,
+                        "Ship Mode": WoShipMode,
+                        "Is Multipack": ismultipack,
+                        "Has Software": has_software,
+                        "Make WO Ack": MakeWoAckValue,
+                        "MCID Value": McidValue
+                    }
+                    flat_list.append(wo_row)
+
+        if not flat_list:
+            return {"error": "No Data Found"}
+
+        # Export or Grid output
+        if format_type in ["export", "grid"]:
+            return flat_list
+
+        return flat_list
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
