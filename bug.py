@@ -107,3 +107,12 @@ def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None
 
     except Exception as e:
         return {"error": str(e)}
+
+
+woids_data = data.get("data", {}).get("getWorkOrderByWoIds")
+
+if not woids_data:
+    print("⚠️ No work orders found in response:", json.dumps(data, indent=2))
+else:
+    print("✅ Work orders:", json.dumps(woids_data, indent=2))
+
