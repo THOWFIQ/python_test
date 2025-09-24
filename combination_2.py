@@ -71,3 +71,9 @@ for idx, item in enumerate(result_map):
 
     print("break point - data exists")
 
+Item index: 0 type: <class 'str'>
+Skipping non-dict item: sales_orders_summary
+Item index: 1 type: <class 'str'>
+Skipping non-dict item: graphql_details
+
+
