@@ -1,137 +1,186 @@
-import os
-import json
-from graphqlqueries import (
-    fetch_salesorder_query,
-    fetch_workOrderId_query,
-    fetch_fulfillment_query,
-    fetch_foid_query,
-    fetch_getAsn_query,
-    fetch_getAsnbySn_query,
-    fetch_getByFulfillmentids_query,
-    fetch_getOrderDate_query
-)
-from utility import post_api  # This must handle POSTing GraphQL queries with optional variables
+def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None):
+    try:
+        def extract_sales_order(data):
+            if not data or not isinstance(data, dict):
+                return None
 
+            # Sales Orders
+            soids_data = data.get("getSalesOrderBySoids")
+            if soids_data:
+                sales_orders = soids_data.get("salesOrders")
+                if sales_orders:
+                    return sales_orders
 
-def load_config():
-    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
-    with open(config_path, "r") as f:
-        return json.load(f)
+            ffids_data = data.get("getSalesOrderByFfids")
+            if ffids_data:
+                sales_orders = ffids_data.get("salesOrders")
+                if sales_orders:
+                    return sales_orders
 
+            return None
 
-def get_path(region, path, configPath):
-    region = region.upper()
-    path = path.upper()
-    return {
-        ("FID", "DAO"): configPath.get("Linkage_DAO"),
-        ("FID", "APJ"): configPath.get("Linkage_APJ"),
-        ("FID", "EMEA"): configPath.get("Linkage_EMEA"),
-        ("FOID", "DAO"): configPath.get("FM_Order_DAO"),
-        ("FOID", "APJ"): configPath.get("FM_Order_EMEA_APJ"),
-        ("FOID", "EMEA"): configPath.get("FM_Order_EMEA_APJ"),
-        ("SOPATH", "DAO"): configPath.get("SO_Header_DAO"),
-        ("SOPATH", "APJ"): configPath.get("SO_Header_EMEA_APJ"),
-        ("SOPATH", "EMEA"): configPath.get("SO_Header_EMEA_APJ"),
-        ("WOID", "DAO"): configPath.get("WO_Details_DAO"),
-        ("WOID", "APJ"): configPath.get("WO_Details_EMEA_APJ"),
-        ("WOID", "EMEA"): configPath.get("WO_Details_EMEA_APJ"),
-        ("FFBOM", "DAO"): configPath.get("FM_BOM_DAO"),
-        ("FFBOM", "APJ"): configPath.get("FM_BOM_EMEA_APJ"),
-        ("FFBOM", "EMEA"): configPath.get("FM_BOM_EMEA_APJ"),
-    }.get((path, region), None)
+        flat_list = []
+        ValidCount = []
 
+        graphql_details = result_map.get("graphql_details", [])
 
-def get_by_combination(filters: dict, region: str, format_type: str = "export"):
-    config = load_config()
-    data = []
+        for item_index, item in enumerate(graphql_details):
+            if not isinstance(item, dict):
+                print(f"Item index: {item_index} type: {type(item)}")
+                print(f"Skipping non-dict item: {item}")
+                continue
 
-    # Paths
-    sopath = get_path(region, "SOPATH", config)
-    wopath = get_path(region, "WOID", config)
-    fidpath = get_path(region, "FID", config)
-    foidpath = get_path(region, "FOID", config)
+            data = item.get("data", {})
+            if not data:
+                continue
 
-    # Mappings from filters to GraphQL queries
-    if sales_order_id := filters.get("Sales_Order_id"):
-        query = fetch_salesorder_query(sales_order_id)
-        response = post_api(sopath, query)
-        if response and response.get("data"):
-            data.append(response["data"])
+            # Extract Sales Orders and Work Orders
+            sales_orders = extract_sales_order(data)
+            workorders = data.get("getWorkOrderByWoIds", [])
 
-    if wo_id := filters.get("wo_id"):
-        query = fetch_workOrderId_query(wo_id)
-        response = post_api(wopath, query)
-        if response and response.get("data"):
-            data.append(response["data"])
+            # Process Sales Orders
+            if sales_orders:
+                for so in sales_orders:
+                    fulfillments = safe_get(so, [0, 'fulfillments']) or []
+                    if isinstance(fulfillments, dict):
+                        fulfillments = [fulfillments]
 
-    if fulfillment_id := filters.get("Fullfillment Id"):
-        query = fetch_fulfillment_query()
-        response = post_api(sopath, query, {"fulfillment_id": fulfillment_id})
-        if response and response.get("data"):
-            data.append(response["data"])
+                    if filtersValue:
+                        sales_order_id = safe_get(so, [0,'salesOrderId'])
+                        if region and region.upper() == safe_get(so, [0,'region'], "").upper():
+                            ValidCount.append(sales_order_id)
 
-    if foid := filters.get("foid"):
-        query = fetch_foid_query(foid)
-        response = post_api(foidpath, query)
-        if response and response.get("data"):
-            data.append(response["data"])
+                    if region and region.upper() != safe_get(so, [0,'region'], "").upper():
+                        continue
 
-    if manifest_id := filters.get("Manifest ID"):
-        query = fetch_getAsn_query(manifest_id)
-        response = post_api(fidpath, query)
-        if response and response.get("data"):
-            data.append(response["data"])
+                    shipping_addr = pick_address_by_type(so[0], "SHIPPING")
+                    billing_addr = pick_address_by_type(so[0], "BILLING")
+                    shipping_phone = pick_address_by_type(fulfillments[0], "SHIPPING") if fulfillments else None
+                    shipping_contact_name = shipping_addr.get("fullName", "") if shipping_addr else ""
 
-    if sn_number := filters.get("SN Number"):
-        query = fetch_getAsnbySn_query(sn_number)
-        response = post_api(fidpath, query)
-        if response and response.get("data"):
-            data.append(response["data"])
+                    # LOB and Facility
+                    lob_list = list(filter(
+                        lambda lob: lob and lob.strip() != "",
+                        map(lambda line: safe_get(line, ['lob']), safe_get(fulfillments, [0,'salesOrderLines']) or [])
+                    ))
+                    lob = ", ".join(lob_list)
 
-    if order_date := filters.get("order_date"):
-        # you can assume date format is "YYYY-MM-DD to YYYY-MM-DD"
-        try:
-            from_date, to_date = order_date.split(" to ")
-            query = fetch_getOrderDate_query(from_date.strip(), to_date.strip())
-            response = post_api(sopath, query)
-            if response and response.get("data"):
-                data.append(response["data"])
-        except Exception as e:
-            print("Invalid order_date range format:", e)
+                    facility_list = list(filter(
+                        lambda f: f and f.strip() != "",
+                        map(lambda line: safe_get(line, ['facility']), safe_get(fulfillments, [0,'salesOrderLines']) or [])
+                    ))
+                    facility = ", ".join(dict.fromkeys(f.strip() for f in facility_list if f))
 
-    # -----------------------------------
-    # Optional fields: Post-fetch filters
-    # -----------------------------------
-    def match_optional_fields(entry):
-        for key, expected in filters.items():
-            if key == "ISMULTIPACK":
-                if not any(line.get("ismultipack") == expected for line in entry.get("woLines", [])):
-                    return False
-            elif key == "BUID" and entry.get("buid") != expected:
-                return False
-            elif key == "Facility":
-                facilities = (entry.get("shipFromFacility"), entry.get("shipToFacility"))
-                if expected not in facilities:
-                    return False
-            elif key == "Order create_date":
-                if entry.get("createDate") != expected:
-                    return False
-            elif key == "Sales_order_ref":
-                if entry.get("soHeaderRef") != expected:
-                    return False
-        return True
+                    def get_status_date(code):
+                        status_code = safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode'])
+                        if status_code == code:
+                            return dateFormation(safe_get(fulfillments, [0, 'soStatus', 0, 'statusDate']))
+                        return ""
 
-    # Flatten + filter
-    flat_data = []
-    for item in data:
-        if isinstance(item, dict):
-            for key, val in item.items():
-                if isinstance(val, list):
-                    for rec in val:
-                        if match_optional_fields(rec):
-                            flat_data.append(rec)
-                elif isinstance(val, dict):
-                    if match_optional_fields(val):
-                        flat_data.append(val)
+                    # Build row
+                    row = {
+                        "Fulfillment ID": safe_get(fulfillments, [0, 'fulfillmentId']),
+                        "BUID": safe_get(so, [0,'buid']),
+                        "BillingCustomerName": billing_addr.get("companyName", "") if billing_addr else "",
+                        "CustomerName": shipping_addr.get("companyName", "") if shipping_addr else "",
+                        "LOB": lob,
+                        "Sales Order ID": safe_get(so, [0,'salesOrderId']),
+                        "Agreement ID": safe_get(so, [0,'agreementId']),
+                        "Amount": safe_get(so, [0,'totalPrice']),
+                        "Currency Code": safe_get(so, [0,'currency']),
+                        "Customer Po Number": safe_get(so, [0,'poNumber']),
+                        "Delivery City": safe_get(fulfillments, [0, 'deliveryCity']),
+                        "DOMS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
+                        "Dp ID": safe_get(so, [0,'dpid']),
+                        "Fulfillment Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
+                        "Merge Type": safe_get(fulfillments, [0, 'mergeType']),
+                        "InstallInstruction2": get_install_instruction2_id(so[0]),
+                        "PP Date": get_status_date("PP"),
+                        "IP Date": get_status_date("IP"),
+                        "MN Date": get_status_date("MN"),
+                        "SC Date": get_status_date("SC"),
+                        "Location Number": safe_get(so, [0,'locationNum']),
+                        "OFS Status Code": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
+                        "OFS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
+                        "ShippingCityCode": shipping_addr.get("cityCode", "") if shipping_addr else "",
+                        "ShippingContactName": shipping_contact_name,
+                        "ShippingCustName": shipping_addr.get("companyName", "") if shipping_addr else "",
+                        "ShippingStateCode": shipping_addr.get("stateCode", "") if shipping_addr else "",
+                        "ShipToAddress1": shipping_addr.get("addressLine1", "") if shipping_addr else "",
+                        "ShipToAddress2": shipping_addr.get("addressLine2", "") if shipping_addr else "",
+                        "ShipToCompany": shipping_addr.get("companyName", "") if shipping_addr else "",
+                        "ShipToPhone": (listify(shipping_phone.get("phone", []))[0].get("phoneNumber", "")
+                                        if shipping_phone and listify(shipping_phone.get("phone", [])) else ""),
+                        "ShipToPostal": shipping_addr.get("postalCode", "") if shipping_addr else "",
+                        "Order Age": safe_get(so, [0,'orderDate']),
+                        "Order Amount usd": safe_get(so, [0,'rateUsdTransactional']),
+                        "Rate Usd Transactional": safe_get(so, [0,'rateUsdTransactional']),
+                        "Sales Rep Name": safe_get(so, [0,'salesrep', 0, 'salesRepName']),
+                        "Shipping Country": shipping_addr.get("country", "") if shipping_addr else "",
+                        "Source System Status": safe_get(fulfillments, [0, 'soStatus', 0,'sourceSystemStsCode']),
+                        "Tie Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'soLineNum']),
+                        "Si Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'siNumber']),
+                        "Req Ship Code": safe_get(fulfillments, [0, 'shipCode']),
+                        "Reassigned IP Date": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
+                        "Payment Term Code": safe_get(fulfillments, [0, 'paymentTerm']),
+                        "Region Code": safe_get(so, [0,'region']),
+                        "FO ID": safe_get(fulfillments, [0, 'fulfillmentOrder', 0, 'foId']),
+                        "System Qty": safe_get(fulfillments, [0, 'systemQty']),
+                        "Ship By Date": safe_get(fulfillments, [0, 'shipByDate']),
+                        "Facility": facility,
+                        "Tax Regstrn Num": safe_get(fulfillments, [0, 'address', 0, 'taxRegstrnNum']),
+                        "State Code": shipping_addr.get("stateCode", "") if shipping_addr else "",
+                        "City Code": shipping_addr.get("cityCode", "") if shipping_addr else "",
+                        "Customer Num": shipping_addr.get("customerNum", "") if shipping_addr else "",
+                        "Customer Name Ext": shipping_addr.get("customerNameExt", "") if shipping_addr else "",
+                        "Country": shipping_addr.get("country", "") if shipping_addr else "",
+                        "Ship Code": safe_get(fulfillments, [0, 'shipCode']),
+                        "Must Arrive By Date": dateFormation(safe_get(fulfillments, [0, 'mustArriveByDate'])),
+                        "Manifest Date": dateFormation(safe_get(fulfillments, [0, 'manifestDate'])),
+                        "Revised Delivery Date": dateFormation(safe_get(fulfillments, [0, 'revisedDeliveryDate'])),
+                        "Source System ID": safe_get(so, [0,'sourceSystemId']),
+                        "OIC ID": safe_get(fulfillments, [0, 'oicId']),
+                        "Order Date": dateFormation(safe_get(so, [0,'orderDate'])),
+                        "Order Type": dateFormation(safe_get(so, [0,'orderType']))
+                    }
+                    flat_list.append(row)
 
-    return flat_data
+            # Process Work Orders
+            if workorders:
+                for wo in workorders:
+                    wo_row = {
+                        "Sales Order ID": wo.get("woId"),
+                        "WO_ID": wo.get("woId"),
+                        "Vendor Site": wo.get("vendorSiteId"),
+                        "Ship Mode": wo.get("shipMode"),
+                        "WO Type": wo.get("woType"),
+                        "Ship To Facility": wo.get("shipToFacility"),
+                        "WO Status Code": safe_get(wo, ['woStatusList', 0, 'channelStatusCode'])
+                    }
+                    flat_list.append(wo_row)
+
+        count_valid = len(ValidCount)
+        if not flat_list:
+            return {"error": "No Data Found"}
+
+        if format_type == "export":
+            data = [{"Count ": count_valid}, flat_list] if filtersValue else flat_list
+            ValidCount.clear()
+            return data
+
+        elif format_type == "grid":
+            desired_order = list(flat_list[0].keys())  # simple ordering
+            rows = []
+            for item in flat_list:
+                row = {"columns": [{"value": item.get(k, "")} for k in desired_order]}
+                rows.append(row)
+            table_grid_output = tablestructural(rows, region) if rows else []
+            if filtersValue:
+                table_grid_output["Count"] = count_valid
+            ValidCount.clear()
+            return table_grid_output
+
+        return flat_list
+
+    except Exception as e:
+        return {"error": str(e)}
