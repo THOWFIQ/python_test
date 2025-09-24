@@ -27,6 +27,15 @@ for item in result_map:
         WO_ID = wo.get("woId")
         DellBlanketPoNum = wo.get("dellBlanketPoNum")
         ship_to_facility = wo.get("shipToFacility")
+
+
+           results = asyncio.run(run_all(graphql_request))
+
+    # Return both detailed GraphQL results and summary of Sales Orders
+    return {
+        "sales_orders_summary": finalResult,
+        "graphql_details": results
+    }
         IsLastLeg = 'Y' if ship_to_facility and 'CUST' in ship_to_facility.upper() else 'N'
         ShipFromMcid = wo.get("vendorSiteId")
         WoOtmEnable = wo.get("isOtmEnabled")
