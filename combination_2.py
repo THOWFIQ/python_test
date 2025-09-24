@@ -345,5 +345,29 @@ def extract_sales_order(data):
             #     return woids_data
 
             return None
+        
+        flat_list = []
+        ValidCount = []
+       
+        # Only use GraphQL results
+        graphql_details = result_map.get("graphql_details", [])
+
+        for item_index, item in enumerate(graphql_details):
+            if not isinstance(item, dict):
+                print(f"Item index: {item_index} type: {type(item)}")
+                print(f"Skipping non-dict item: {item}")
+                continue
+
+            data = item.get("data")
+            if not data:
+                continue
+            
+
+            soids_data = data.get("getSalesOrderBySoids")
+            ffids_data = data.get("getSalesOrderByFfids")
+           
+            sales_orders = extract_sales_order(data)
+            print(sales_orders)
+            exit()
 
 
