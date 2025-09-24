@@ -85,4 +85,10 @@ Skipping non-dict item: sales_orders_summary
 Item index: 1 type: <class 'str'>
 Skipping non-dict item: graphql_details
 
+   results = asyncio.run(run_all(graphql_request))
 
+    # Return both detailed GraphQL results and summary of Sales Orders
+    return {
+        "sales_orders_summary": finalResult,
+        "graphql_details": results
+    }
