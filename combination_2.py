@@ -323,4 +323,27 @@ def OutputFormat(result_map, format_type=None, filtersValue=None, region=None):
     except Exception as e:
         return {"error": str(e)}
 
+def extract_sales_order(data):
+            if not data or not isinstance(data, dict):
+                return None
+
+            soids_data = data.get("getSalesOrderBySoids")
+            # woids_data = data.get('getWorkOrderByWoIds')
+            if soids_data:
+                sales_orders = soids_data.get("salesOrders")
+                if sales_orders:
+                    return sales_orders,woids_data
+
+            ffids_data = data.get("getSalesOrderByFfids")
+            if ffids_data:
+                sales_orders = ffids_data.get("salesOrders")
+                if sales_orders:
+                    return sales_orders
+
+            # woids_data = data.get('getWorkOrderByWoIds')
+            # if woids_data:
+            #     return woids_data
+
+            return None
+
 
