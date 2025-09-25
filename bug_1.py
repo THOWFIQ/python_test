@@ -1,752 +1,151 @@
-def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None):
-    # print(json.dumps(result_map,indent=2))
-    # exit()
-    try:
-        def extract_sales_order(data):
-            if not data or not isinstance(data, dict):
-                return None
+for so in sales_orders:
+    sales_order_id = safe_get(so, ['salesOrderId'])
+    if region and region.upper() != safe_get(so, ['region'], "").upper():
+        continue
 
-            soids_data = data.get("getSalesOrderBySoids")
-            woids_data = data.get('getWorkOrderByWoIds')
-            if soids_data:
-                sales_orders = soids_data.get("salesOrders")
-                if sales_orders:
-                    return sales_orders,woids_data
+    if filtersValue:
+        ValidCount.append(sales_order_id)
 
-            ffids_data = data.get("getSalesOrderByFfids")
-            if ffids_data:
-                sales_orders = ffids_data.get("salesOrders")
-                if sales_orders:
-                    return sales_orders
+    fulfillments = safe_get(so, ['fulfillments']) or []
+    if isinstance(fulfillments, dict):
+        fulfillments = [fulfillments]
 
-            # woids_data = data.get('getWorkOrderByWoIds')
-            # if woids_data:
-            #     return woids_data
+    for fulfillment in fulfillments:
+        # Decide fulfillmentId & foId properly
+        if fulfillment.get("fulfillmentOrder"):
+            fulfillment_id = safe_get(fulfillment, ['fulfillmentOrder', 0, 'fulfillmentId'])
+            fo_id = safe_get(fulfillment, ['fulfillmentOrder', 0, 'foId'])
+        else:
+            fulfillment_id = safe_get(fulfillment, ['fulfillmentId'])
+            fo_id = ""
 
-            return None
-        
-        flat_list = []
-        ValidCount = []
-        
-        for item in result_map:            
-            data = item.get("data")
-           
-            if not data:
-                continue
+        shipping_addr = pick_address_by_type(so, "SHIPPING")
+        billing_addr = pick_address_by_type(so, "BILLING")
+        shipping_phone = pick_address_by_type(fulfillment, "SHIPPING") if fulfillment else None
+        shipping_contact_name = shipping_addr.get("fullName", "") if shipping_addr else ""
 
-            soids_data = data.get("getSalesOrderBySoids")
-            ffids_data = data.get("getSalesOrderByFfids")
-            # woids_data = data.get("getWorkOrderByWoIds")
-            # print(json.dumps(woids_data,indent=2))
-            # exit()
-             # Handle WorkOrders (safe lookup)
-            
+        lob_list = list(filter(
+            lambda lob: lob and lob.strip() != "",
+            map(lambda line: safe_get(line, ['lob']), safe_get(fulfillment, ['salesOrderLines']) or [])
+        ))
+        lob = ", ".join(lob_list)
 
-            sales_orders = extract_sales_order(data)
-            print(json.dumps(sales_orders,indent=2))
-            exit()
-            if not sales_orders or len(sales_orders) == 0:
-                continue
+        facility_list = list(filter(
+            lambda f: f and f.strip() != "",
+            map(lambda line: safe_get(line, ['facility']), safe_get(fulfillment, ['salesOrderLines']) or [])
+        ))
+        facility = ", ".join(dict.fromkeys(f.strip() for f in facility_list if f))
 
-            for so in sales_orders:
-                fulfillments = safe_get(so, ['fulfillments'])
+        def get_status_date(code):
+            status_code = safe_get(fulfillment, ['soStatus', 0, 'sourceSystemStsCode'])
+            if status_code == code:
+                return dateFormation(safe_get(fulfillment, ['soStatus', 0, 'statusDate']))
+            return ""
 
-                if isinstance(fulfillments, dict):
-                    fulfillments = [fulfillments]
-
-                if filtersValue:
-                    if soids_data and not ffids_data:
-                        sales_order_id = safe_get(so, ['salesOrderId'])
-                        if region and region.upper() == safe_get(so, ['region'], "").upper():
-                            ValidCount.append(sales_order_id)
-                            # print("Appended sales_order_id:", sales_order_id)
-                            # print("Current ValidCount:", ValidCount)
-                    elif ffids_data and not soids_data:
-                        fulfillment_id = safe_get(fulfillments, [0, 'fulfillmentId'])
-                        if region and region.upper() == safe_get(so, ['region'], "").upper():
-                            ValidCount.append(fulfillment_id)
-                            # print("Appended fulfillment_id:", fulfillment_id)
-                            # print("Current ValidCount:", ValidCount)
-                    elif woids_data and not soids_data and not ffids_data:
-                        work_order_id = safe_get(fulfillments, [0, 'fulfillmentId'])
-                        if region and region.upper() == safe_get(so, ['region'], "").upper():
-                            ValidCount.append(fulfillment_id)
-                            # print("Appended fulfillment_id:", fulfillment_id)
-                            # print("Current ValidCount:", ValidCount)
-                # else:
-                #     print("Both soids_data and ffids_data present, skipping append")
-                    # pass
-                
-                if region and region.upper() != safe_get(so, ['region'], "").upper():
-                    continue
-                shipping_addr = pick_address_by_type(so, "SHIPPING")
-                shipping_phone = pick_address_by_type(fulfillments[0], "SHIPPING")
-                billing_addr = pick_address_by_type(so, "BILLING")
-                shipping_contact_name = shipping_addr.get("fullName", "") if shipping_addr else ""
-                              
-                lob_list = list(filter(
-                            lambda lob: lob is not None and lob.strip() != "",
-                            map(
-                                lambda line: safe_get(line, ['lob']),
-                                safe_get(fulfillments, [0,'salesOrderLines']) or []
-                            )
-                        ))
-                
-                lob = ", ".join(lob_list)
-
-                facility_list = list(filter(
-                            lambda facility: facility is not None and facility.strip() != "",
-                            map(
-                                lambda line: safe_get(line, ['facility']),
-                                safe_get(fulfillments, [0,'salesOrderLines']) or []
-                            )
-                        ))
-
-                facility = ", ".join(dict.fromkeys(f.strip() for f in facility_list if f and f.strip()))
-
-                def get_status_date(code):
-                    status_code = safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode'])
-                    if status_code == code:
-                        return dateFormation(safe_get(fulfillments, [0, 'soStatus', 0, 'statusDate']))
-                    return ""
-
-                # WO_ID = safe_get(WorkOrderData, ['woId'])
-                # DellBlanketPoNum = safe_get(WorkOrderData, ['dellBlanketPoNum'])
-                # ship_to_facility = safe_get(WorkOrderData, ['shipToFacility'])
-                # IsLastLeg = 'Y' if ship_to_facility and 'CUST' in ship_to_facility.upper() else 'N'
-                # ShipFromMcid = safe_get(WorkOrderData, ['vendorSiteId'])
-                # WoOtmEnable = safe_get(WorkOrderData, ['isOtmEnabled'])
-                # WoShipMode = safe_get(WorkOrderData, ['shipMode'])
-                # ismultipack = safe_get(WorkOrderData, ['woLines',0,"ismultipack"])
-                # wo_lines = safe_get(WorkOrderData, ['woLines'])
-                # has_software = any(safe_get(line, ['woLineType']) == 'SOFTWARE' for line in wo_lines)
-                # MakeWoAckValue = next((dateFormation(status.get("statusDate")) for status in WorkOrderData.get("woStatusList", [])
-                #                         if str(status.get("channelStatusCode")) == "3000" and WorkOrderData.get("woType") == "MAKE"),
-                #                         "")
-                # McidValue = (
-                #                 WorkOrderData.get('woShipInstr', [{}])[0].get('mergeFacility') or
-                #                 WorkOrderData.get('woShipInstr', [{}])[0].get('carrierHubCode', "")
-                #             )
-                
-                row = {
-                    "Fulfillment ID": safe_get(fulfillments, [0, 'fulfillmentId']),
-                    "BUID": safe_get(so, ['buid']),
-                    "BillingCustomerName": billing_addr.get("companyName", "") if billing_addr else "",
-                    "CustomerName": shipping_addr.get("companyName", "") if shipping_addr else "",
-                    "LOB": lob,
-                    "Sales Order ID": safe_get(so, ['salesOrderId']),
-                    "Agreement ID": safe_get(so, ['agreementId']),
-                    "Amount": safe_get(so, ['totalPrice']),
-                    "Currency Code": safe_get(so, ['currency']),
-                    "Customer Po Number": safe_get(so, ['poNumber']),
-                    "Delivery City": safe_get(fulfillments, [0, 'deliveryCity']),
-                    "DOMS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
-                    "Dp ID": safe_get(so, ['dpid']),
-                    "Fulfillment Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
-                    "Merge Type": safe_get(fulfillments, [0, 'mergeType']),
-                    "InstallInstruction2": get_install_instruction2_id(so),
-                    "PP Date": get_status_date("PP"),
-                    "IP Date": get_status_date("IP"),
-                    "MN Date": get_status_date("MN"),
-                    "SC Date": get_status_date("SC"),
-                    "Location Number": safe_get(so, ['locationNum']),
-                    "OFS Status Code": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
-                    "OFS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
-                    "ShippingCityCode": shipping_addr.get("cityCode", "") if shipping_addr else "",
-                    "ShippingContactName": shipping_contact_name,
-                    "ShippingCustName": shipping_addr.get("companyName", "") if shipping_addr else "",
-                    "ShippingStateCode": shipping_addr.get("stateCode", "") if shipping_addr else "",
-                    "ShipToAddress1": shipping_addr.get("addressLine1", "") if shipping_addr else "",
-                    "ShipToAddress2": shipping_addr.get("addressLine2", "") if shipping_addr else "",
-                    "ShipToCompany": shipping_addr.get("companyName", "") if shipping_addr else "",
-                    "ShipToPhone": (listify(shipping_phone.get("phone", []))[0].get("phoneNumber", "")
-                                    if shipping_phone and listify(shipping_phone.get("phone", [])) else ""),
-                    "ShipToPostal": shipping_addr.get("postalCode", "") if shipping_addr else "",
-                    "Order Age": safe_get(so, ['orderDate']),
-                    "Order Amount usd": safe_get(so, ['rateUsdTransactional']),
-                    "Rate Usd Transactional": safe_get(so, ['rateUsdTransactional']),
-                    "Sales Rep Name": safe_get(so, ['salesrep', 0, 'salesRepName']),
-                    "Shipping Country": shipping_addr.get("country", "") if shipping_addr else "",
-                    "Source System Status": safe_get(fulfillments, [0, 'soStatus', 0,'sourceSystemStsCode']),
-                    "Tie Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'soLineNum']),
-                    "Si Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'siNumber']),
-                    "Req Ship Code": safe_get(fulfillments, [0, 'shipCode']),
-                    "Reassigned IP Date": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
-                    "Payment Term Code": safe_get(fulfillments, [0, 'paymentTerm']),
-                    "Region Code": safe_get(so, ['region']),
-                    "FO ID": safe_get(fulfillments, [0, 'fulfillmentOrder', 0, 'foId']),
-                    "System Qty": safe_get(fulfillments, [0, 'systemQty']),
-                    "Ship By Date": safe_get(fulfillments, [0, 'shipByDate']),
-                    "Facility": facility,
-                    "Tax Regstrn Num": safe_get(fulfillments, [0, 'address', 0, 'taxRegstrnNum']),
-                    "State Code": shipping_addr.get("stateCode", "") if shipping_addr else "",
-                    "City Code": shipping_addr.get("cityCode", "") if shipping_addr else "",
-                    "Customer Num": shipping_addr.get("customerNum", "") if shipping_addr else "",
-                    "Customer Name Ext": shipping_addr.get("customerNameExt", "") if shipping_addr else "",
-                    "Country": shipping_addr.get("country", "") if shipping_addr else "",
-                    "Ship Code": safe_get(fulfillments, [0, 'shipCode']),
-                    "Must Arrive By Date": dateFormation(safe_get(fulfillments, [0, 'mustArriveByDate'])),
-                    "Manifest Date": dateFormation(safe_get(fulfillments, [0, 'manifestDate'])),
-                    "Revised Delivery Date": dateFormation(safe_get(fulfillments, [0, 'revisedDeliveryDate'])),
-                    "Source System ID": safe_get(so, ['sourceSystemId']),
-                    "OIC ID": safe_get(fulfillments, [0, 'oicId']),
-                    "Order Date": dateFormation(safe_get(so, ['orderDate'])),
-                    "Order Type": dateFormation(safe_get(so, ['orderType']))
-                }
-
-                flat_list.append(row)
-
-        count_valid = len(ValidCount)
-
-        if not flat_list:
-            return {"error": "No Data Found"}
-       
-        if len(flat_list) > 0:
-            if format_type == "export":
-                if filtersValue:
-                    data = []
-                    count =  {"Count ": count_valid}
-                    data.append(count)
-                    data.append(flat_list)
-                    ValidCount.clear()
-                    return data
-                else:
-                    return flat_list
-
-            elif format_type == "grid":
-                
-                desired_order = [
-                    "Fulfillment ID","BUID","BillingCustomerName","CustomerName","LOB","Sales Order ID","Agreement ID",
-                    "Amount","Currency Code","Customer Po Number","Delivery City","DOMS Status","Dp ID","Fulfillment Status",
-                    "Merge Type","InstallInstruction2","PP Date","IP Date","MN Date","SC Date","Location Number","OFS Status Code",
-                    "OFS Status","ShippingCityCode","ShippingContactName","ShippingCustName","ShippingStateCode","ShipToAddress1",
-                    "ShipToAddress2","ShipToCompany","ShipToPhone","ShipToPostal","Order Age","Order Amount usd","Rate Usd Transactional",
-                    "Sales Rep Name","Shipping Country","Source System Status","Tie Number","Si Number","Req Ship Code",
-                    "Reassigned IP Date","Payment Term Code","Region Code","FO ID","System Qty","Ship By Date","Facility",
-                    "Tax Regstrn Num","State Code","City Code","Customer Num","Customer Name Ext","Country","Ship Code",
-                    "Must Arrive By Date","Manifest Date","Revised Delivery Date","Source System ID","OIC ID","Order Date","Order Type"
-                ]
-                
-                rows = []
-                for item in flat_list:
-                    reordered_values = [item.get(key, "") for key in desired_order]
-                    row = {"columns": [{"value": val if val is not None else ""} for val in reordered_values]}
-                    rows.append(row)
-                table_grid_output = tablestructural(rows,region) if rows else []
-                
-                if filtersValue:
-                    table_grid_output["Count"] = count_valid
-                ValidCount.clear()
-                return table_grid_output
-
-    except Exception as e:
-        return {"error": str(e)}
-
-
-
-
-[
-  {
-    "data": {
-      "getSalesOrderBySoids": {
-        "salesOrders": [
-          {
-            "agreementId": "",
-            "totalPrice": "797",
-            "buid": "10620",
-            "currency": "EUR",
-            "poNumber": "",
-            "dpid": "4382972636",
-            "locationNum": "01",
-            "orderDate": "2025-09-08 17:56:11",
-            "rateUsdTransactional": "0",
-            "orderCreateDate": "2025-09-08 17:56:11",
-            "sourceSystemId": "DSP",
-            "salesOrderId": "4382972636",
-            "region": "EMEA",
-            "orderType": "Standard Order",
-            "address": [
-              {
-                "companyName": "",
-                "cityCode": "",
-                "city": "",
-                "firstName": "",
-                "lastName": "",
-                "fullName": "",
-                "country": "",
-                "stateCode": "",
-                "addressLine1": "",
-                "addressLine2": "",
-                "postalCode": "",
-                "customerNum": "",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "INSTALLAT"
-                  }
-                ]
-              },
-              {
-                "companyName": "",
-                "cityCode": "",
-                "city": "",
-                "firstName": "",
-                "lastName": "",
-                "fullName": "",
-                "country": "",
-                "stateCode": "",
-                "addressLine1": "",
-                "addressLine2": "",
-                "postalCode": "",
-                "customerNum": "",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "INSTALLAT"
-                  }
-                ]
-              },
-              {
-                "companyName": "CJR - SGPS, S.A.",
-                "cityCode": "",
-                "city": "GUIMAR\u00c3ES",
-                "firstName": "aenfdyzyd",
-                "lastName": "skxcgjcc",
-                "fullName": "",
-                "country": "PT",
-                "stateCode": "",
-                "addressLine1": "RUA DO LOUREDO\\, 447",
-                "addressLine2": "",
-                "postalCode": "4800-214",
-                "customerNum": "",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "SOLDTO"
-                  }
-                ]
-              },
-              {
-                "companyName": "",
-                "cityCode": "",
-                "city": "",
-                "firstName": "",
-                "lastName": "",
-                "fullName": "",
-                "country": "",
-                "stateCode": "",
-                "addressLine1": "",
-                "addressLine2": "",
-                "postalCode": "",
-                "customerNum": "",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "INSTALLAT"
-                  }
-                ]
-              },
-              {
-                "companyName": "",
-                "cityCode": "",
-                "city": "",
-                "firstName": "",
-                "lastName": "",
-                "fullName": "",
-                "country": "",
-                "stateCode": "",
-                "addressLine1": "",
-                "addressLine2": "",
-                "postalCode": "",
-                "customerNum": "",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "DELIVERY"
-                  }
-                ]
-              },
-              {
-                "companyName": "CJR - SGPS, S.A.",
-                "cityCode": "",
-                "city": "GUIMAR\u00c3ES",
-                "firstName": "tifbhre",
-                "lastName": "olnfwpff",
-                "fullName": "lzplafbhre y mdautfwpff",
-                "country": "PT",
-                "stateCode": "",
-                "addressLine1": "RUA DO LOUREDO\\, N\u00ba 447",
-                "addressLine2": "SELHO S. LOUREN\u00c7O",
-                "postalCode": "4800-214",
-                "customerNum": "",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "BILLING"
-                  }
-                ]
-              },
-              {
-                "companyName": "",
-                "cityCode": "",
-                "city": "",
-                "firstName": "",
-                "lastName": "",
-                "fullName": "",
-                "country": "",
-                "stateCode": "",
-                "addressLine1": "",
-                "addressLine2": "",
-                "postalCode": "",
-                "customerNum": "",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "END_USER"
-                  }
-                ]
-              },
-              {
-                "companyName": "CJR - SGPS, S.A.",
-                "cityCode": "",
-                "city": "GUIMAR\u00c3ES",
-                "firstName": "aenfdyzyd",
-                "lastName": "skxcgjcc",
-                "fullName": "aenfdyzyd y skxcgjcc",
-                "country": "PT",
-                "stateCode": "Braga",
-                "addressLine1": "RUA DO LOUREDO\\, N\u00ba 447",
-                "addressLine2": "SELHO S. LOUREN\u00c7O",
-                "postalCode": "4800-214",
-                "customerNum": "D11202988656",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "SHIPPING"
-                  }
-                ]
-              },
-              {
-                "companyName": "",
-                "cityCode": "",
-                "city": "",
-                "firstName": "",
-                "lastName": "",
-                "fullName": "",
-                "country": "",
-                "stateCode": "",
-                "addressLine1": "",
-                "addressLine2": "",
-                "postalCode": "",
-                "customerNum": "",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "INSTALLAT"
-                  }
-                ]
-              },
-              {
-                "companyName": "",
-                "cityCode": "",
-                "city": "",
-                "firstName": "",
-                "lastName": "",
-                "fullName": "",
-                "country": "",
-                "stateCode": "",
-                "addressLine1": "",
-                "addressLine2": "",
-                "postalCode": "",
-                "customerNum": "",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "DELIVERY"
-                  }
-                ]
-              },
-              {
-                "companyName": "",
-                "cityCode": "",
-                "city": "",
-                "firstName": "",
-                "lastName": "",
-                "fullName": "",
-                "country": "",
-                "stateCode": "",
-                "addressLine1": "",
-                "addressLine2": "",
-                "postalCode": "",
-                "customerNum": "",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "DELIVERY"
-                  }
-                ]
-              },
-              {
-                "companyName": "",
-                "cityCode": "",
-                "city": "",
-                "firstName": "",
-                "lastName": "",
-                "fullName": "",
-                "country": "",
-                "stateCode": "",
-                "addressLine1": "",
-                "addressLine2": "",
-                "postalCode": "",
-                "customerNum": "",
-                "customerNameExt": "",
-                "contact": [
-                  {
-                    "contactType": "DELIVERY"
-                  }
-                ]
-              }
-            ],
-            "fulfillments": [
-              {
-                "deliveryCity": "",
-                "mergeType": "ATO-DIRECT",
-                "paymentTerm": "Prepaid",
-                "shipCode": "IY",
-                "systemQty": "1",
-                "shipByDate": "",
-                "mustArriveByDate": "",
-                "manifestDate": "",
-                "revisedDeliveryDate": "1900-01-01 00:00:00",
-                "oicId": "bb736b2b-0ee9-45d0-a5f8-dcf4dbd2c7bc",
-                "fulfillmentId": "5240818296",
-                "address": [
-                  {
-                    "postalCode": "",
-                    "taxRegstrnNum": "",
-                    "contact": [
-                      {
-                        "contactType": "INSTALLAT"
-                      }
-                    ],
-                    "phone": []
-                  },
-                  {
-                    "postalCode": "",
-                    "taxRegstrnNum": "",
-                    "contact": [
-                      {
-                        "contactType": "INSTALLAT"
-                      }
-                    ],
-                    "phone": []
-                  },
-                  {
-                    "postalCode": "",
-                    "taxRegstrnNum": "",
-                    "contact": [
-                      {
-                        "contactType": "INSTALLAT"
-                      }
-                    ],
-                    "phone": []
-                  },
-                  {
-                    "postalCode": "",
-                    "taxRegstrnNum": "",
-                    "contact": [
-                      {
-                        "contactType": "DELIVERY"
-                      }
-                    ],
-                    "phone": []
-                  },
-                  {
-                    "postalCode": "",
-                    "taxRegstrnNum": "",
-                    "contact": [
-                      {
-                        "contactType": "END_USER"
-                      }
-                    ],
-                    "phone": []
-                  },
-                  {
-                    "postalCode": "4800-214",
-                    "taxRegstrnNum": "",
-                    "contact": [
-                      {
-                        "contactType": "SHIPPING"
-                      }
-                    ],
-                    "phone": []
-                  },
-                  {
-                    "postalCode": "",
-                    "taxRegstrnNum": "",
-                    "contact": [
-                      {
-                        "contactType": "INSTALLAT"
-                      }
-                    ],
-                    "phone": []
-                  },
-                  {
-                    "postalCode": "",
-                    "taxRegstrnNum": "",
-                    "contact": [
-                      {
-                        "contactType": "DELIVERY"
-                      }
-                    ],
-                    "phone": []
-                  },
-                  {
-                    "postalCode": "",
-                    "taxRegstrnNum": "",
-                    "contact": [
-                      {
-                        "contactType": "DELIVERY"
-                      }
-                    ],
-                    "phone": []
-                  },
-                  {
-                    "postalCode": "",
-                    "taxRegstrnNum": "",
-                    "contact": [
-                      {
-                        "contactType": "DELIVERY"
-                      }
-                    ],
-                    "phone": []
-                  }
-                ],
-                "soStatus": [
-                  {
-                    "sourceSystemStsCode": "PP",
-                    "fulfillmentStsCode": "PENDFULFILL",
-                    "statusDate": "2025-09-22 05:30:56.173993"
-                  }
-                ],
-                "salesOrderLines": [
-                  {
-                    "soLineQty": "1",
-                    "lob": "",
-                    "siNumber": "",
-                    "soLineNum": "31",
-                    "facility": "",
-                    "specialInstructions": []
-                  },
-                  {
-                    "soLineQty": "1",
-                    "lob": "Laptop",
-                    "siNumber": "",
-                    "soLineNum": "1",
-                    "facility": "CET",
-                    "specialInstructions": []
-                  },
-                  {
-                    "soLineQty": "1",
-                    "lob": "Software",
-                    "siNumber": "",
-                    "soLineNum": "29",
-                    "facility": "",
-                    "specialInstructions": []
-                  },
-                  {
-                    "soLineQty": "1",
-                    "lob": "Software",
-                    "siNumber": "",
-                    "soLineNum": "30",
-                    "facility": "",
-                    "specialInstructions": []
-                  }
-                ],
-                "fulfillmentOrder": [
-                  {
-                    "foId": "7375763532200185857"
-                  }
-                ]
-              }
-            ],
-            "salesRep": [
-              {
-                "salesRepName": ""
-              }
-            ]
-          }
-        ]
-      }
-    }
-  },
-  {
-    "data": {
-      "getWorkOrderByWoIds": [
-        {
-          "channel": "CM",
-          "vendorSiteId": "CET",
-          "dellBlanketPoNum": "",
-          "woLines": [
-            {
-              "ismultipack": "",
-              "woLineType": "MAKE"
-            }
-          ],
-          "woType": "MAKE",
-          "woId": "69748",
-          "woStatusList": [
-            {
-              "channelStatusCode": "1000"
-            }
-          ],
-          "woShipInstr": [],
-          "shipMode": "AR",
-          "shipToFacility": "CUST"
-        },
-        {
-          "channel": "CM",
-          "vendorSiteId": "CET",
-          "dellBlanketPoNum": "",
-          "woLines": [
-            {
-              "ismultipack": "",
-              "woLineType": "MAKE"
-            }
-          ],
-          "woType": "MAKE",
-          "woId": "69759",
-          "woStatusList": [
-            {
-              "channelStatusCode": "1000"
-            }
-          ],
-          "woShipInstr": [],
-          "shipMode": "AR",
-          "shipToFacility": "CUST"
-        },
-        {
-          "channel": "CM",
-          "vendorSiteId": "CET",
-          "dellBlanketPoNum": "",
-          "woLines": [
-            {
-              "ismultipack": "",
-              "woLineType": "MAKE"
-            }
-          ],
-          "woType": "MAKE",
-          "woId": "69770",
-          "woStatusList": [
-            {
-              "channelStatusCode": "1000"
-            }
-          ],
-          "woShipInstr": [],
-          "shipMode": "AR",
-          "shipToFacility": "CUST"
+        row = {
+            "Fulfillment ID": fulfillment_id,
+            "FO ID": fo_id,
+            "BUID": safe_get(so, ['buid']),
+            "BillingCustomerName": billing_addr.get("companyName", "") if billing_addr else "",
+            "CustomerName": shipping_addr.get("companyName", "") if shipping_addr else "",
+            "LOB": lob,
+            "Sales Order ID": sales_order_id,
+            "Agreement ID": safe_get(so, ['agreementId']),
+            "Amount": safe_get(so, ['totalPrice']),
+            "Currency Code": safe_get(so, ['currency']),
+            "Customer Po Number": safe_get(so, ['poNumber']),
+            "Delivery City": safe_get(fulfillment, ['deliveryCity']),
+            "DOMS Status": safe_get(fulfillment, ['soStatus', 0, 'sourceSystemStsCode']),
+            "Dp ID": safe_get(so, ['dpid']),
+            "Fulfillment Status": safe_get(fulfillment, ['soStatus', 0, 'fulfillmentStsCode']),
+            "Merge Type": safe_get(fulfillment, ['mergeType']),
+            "InstallInstruction2": get_install_instruction2_id(so),
+            "PP Date": get_status_date("PP"),
+            "IP Date": get_status_date("IP"),
+            "MN Date": get_status_date("MN"),
+            "SC Date": get_status_date("SC"),
+            "Location Number": safe_get(so, ['locationNum']),
+            "OFS Status Code": safe_get(fulfillment, ['soStatus', 0, 'sourceSystemStsCode']),
+            "OFS Status": safe_get(fulfillment, ['soStatus', 0, 'fulfillmentStsCode']),
+            "ShippingCityCode": shipping_addr.get("cityCode", "") if shipping_addr else "",
+            "ShippingContactName": shipping_contact_name,
+            "ShippingCustName": shipping_addr.get("companyName", "") if shipping_addr else "",
+            "ShippingStateCode": shipping_addr.get("stateCode", "") if shipping_addr else "",
+            "ShipToAddress1": shipping_addr.get("addressLine1", "") if shipping_addr else "",
+            "ShipToAddress2": shipping_addr.get("addressLine2", "") if shipping_addr else "",
+            "ShipToCompany": shipping_addr.get("companyName", "") if shipping_addr else "",
+            "ShipToPhone": (listify(shipping_phone.get("phone", []))[0].get("phoneNumber", "")
+                            if shipping_phone and listify(shipping_phone.get("phone", [])) else ""),
+            "ShipToPostal": shipping_addr.get("postalCode", "") if shipping_addr else "",
+            "Order Age": safe_get(so, ['orderDate']),
+            "Order Amount usd": safe_get(so, ['rateUsdTransactional']),
+            "Rate Usd Transactional": safe_get(so, ['rateUsdTransactional']),
+            "Sales Rep Name": safe_get(so, ['salesrep', 0, 'salesRepName']),
+            "Shipping Country": shipping_addr.get("country", "") if shipping_addr else "",
+            "Source System Status": safe_get(fulfillment, ['soStatus', 0,'sourceSystemStsCode']),
+            "Tie Number": safe_get(fulfillment, ['salesOrderLines', 0, 'soLineNum']),
+            "Si Number": safe_get(fulfillment, ['salesOrderLines', 0, 'siNumber']),
+            "Req Ship Code": safe_get(fulfillment, ['shipCode']),
+            "Reassigned IP Date": safe_get(fulfillment, ['soStatus', 0, 'sourceSystemStsCode']),
+            "Payment Term Code": safe_get(fulfillment, ['paymentTerm']),
+            "Region Code": safe_get(so, ['region']),
+            "System Qty": safe_get(fulfillment, ['systemQty']),
+            "Ship By Date": safe_get(fulfillment, ['shipByDate']),
+            "Facility": facility,
+            "Tax Regstrn Num": safe_get(fulfillment, ['address', 0, 'taxRegstrnNum']),
+            "State Code": shipping_addr.get("stateCode", "") if shipping_addr else "",
+            "City Code": shipping_addr.get("cityCode", "") if shipping_addr else "",
+            "Customer Num": shipping_addr.get("customerNum", "") if shipping_addr else "",
+            "Customer Name Ext": shipping_addr.get("customerNameExt", "") if shipping_addr else "",
+            "Country": shipping_addr.get("country", "") if shipping_addr else "",
+            "Ship Code": safe_get(fulfillment, ['shipCode']),
+            "Must Arrive By Date": dateFormation(safe_get(fulfillment, ['mustArriveByDate'])),
+            "Manifest Date": dateFormation(safe_get(fulfillment, ['manifestDate'])),
+            "Revised Delivery Date": dateFormation(safe_get(fulfillment, ['revisedDeliveryDate'])),
+            "Source System ID": safe_get(so, ['sourceSystemId']),
+            "OIC ID": safe_get(fulfillment, ['oicId']),
+            "Order Date": dateFormation(safe_get(so, ['orderDate'])),
+            "Order Type": safe_get(so, ['orderType']),
+            # WO fields default
+            "WO_ID": "",
+            "Dell Blanket PO Num": "",
+            "Ship To Facility": "",
+            "Is Last Leg": "",
+            "Ship From MCID": "",
+            "WO OTM Enabled": "",
+            "WO Ship Mode": "",
+            "Is Multipack": "",
+            "Has Software": "",
+            "Make WO Ack Date": "",
+            "MCID Value": ""
         }
-      ]
-    }
-  }
-]
+
+        # now attach WOs same as before
+        wo_ids = so_wo_map.get(sales_order_id, [])
+        if wo_ids:
+            for WO_ID in wo_ids:
+                wo_obj = next((wo for wo in raw_workorders if wo.get("woId") == WO_ID), {})
+                wo_row = {
+                    "WO_ID": WO_ID,
+                    "Dell Blanket PO Num": safe_get(wo_obj, ['dellBlanketPoNum']),
+                    "Ship To Facility": safe_get(wo_obj, ['shipToFacility']),
+                    "Is Last Leg": 'Y' if safe_get(wo_obj, ['shipToFacility']) else 'N',
+                    "Ship From MCID": safe_get(wo_obj, ['vendorSiteId']),
+                    "WO OTM Enabled": safe_get(wo_obj, ['isOtmEnabled']),
+                    "WO Ship Mode": safe_get(wo_obj, ['shipMode']),
+                    "Is Multipack": safe_get(wo_obj, ['woLines', 0, 'ismultipack']),
+                    "Has Software": any(safe_get(line, ['woLineType']) == 'SOFTWARE' for line in safe_get(wo_obj, ['woLines']) or []),
+                    "Make WO Ack Date": next(
+                        (dateFormation(status.get("statusDate"))
+                         for status in wo_obj.get("woStatusList", [])
+                         if str(status.get("channelStatusCode")) == "3000" and wo_obj.get("woType") == "MAKE"),
+                        ""
+                    ),
+                    "MCID Value": (
+                        safe_get(wo_obj, ['woShipInstr', 0, "mergeFacility"]) or
+                        safe_get(wo_obj, ['woShipInstr', 0, "carrierHubCode"])
+                    )
+                }
+                flat_list.append({**row, **wo_row})
+        else:
+            flat_list.append(row)
