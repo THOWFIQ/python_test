@@ -21,7 +21,7 @@ def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None
 
         flat_list = []
         ValidCount = []
-
+        sales_wo_details = result_map.get("sales_orders_summary", [])
         graphql_details = result_map.get("graphql_details", [])
 
         for item_index, item in enumerate(graphql_details):
@@ -208,3 +208,17 @@ def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None
 
     except Exception as e:
         return {"error": str(e)}
+
+
+[
+  {
+    "salesOrderId": "4382972636",
+    "region": "EMEA",
+    "workOrderIds": [
+      "69759",
+      "69748",
+      "69770"
+    ]
+  }
+]
+
