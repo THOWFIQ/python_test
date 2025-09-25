@@ -221,3 +221,23 @@ def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None
 
     except Exception as e:
         return {"error": str(e)}
+
+
+
+sales_wo_details = result_map.get("sales_orders_summary", [])
+
+[
+  {
+    "salesOrderId": "4036311488",
+    "region": "EMEA",
+    "workOrderIds": []
+  },
+  {
+    "salesOrderId": "4330142526",
+    "region": "EMEA",
+    "workOrderIds": [
+      "65788",
+      "65777"
+    ]
+  }
+]
