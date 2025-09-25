@@ -1,117 +1,283 @@
-def OutputFormat(result_map, format_type=None, region=None):
+def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None):
     try:
-        output = []
+        def extract_sales_order(data):
+            if not data or not isinstance(data, dict):
+                return None
 
-        # Count only once at the start
-        output.append({"Count ": len(result_map)})
+            soids_data = data.get("getSalesOrderBySoids")
+            if soids_data:
+                sales_orders = soids_data.get("salesOrders")
+                if sales_orders:
+                    return sales_orders
 
-        rows = []
-        for item in result_map:
-            try:
-                sales_order = item.get("salesOrder", {})
-                fulfillment = safe_get(item, ["fulfillment", 0], {})
-                billing_addr = item.get("billingAddress", {})
-                shipping_addr = item.get("shippingAddress", {})
-                shipping_contact = safe_get(item, ["shippingContact", "name"], "")
+            ffids_data = data.get("getSalesOrderByFfids")
+            if ffids_data:
+                sales_orders = ffids_data.get("salesOrders")
+                if sales_orders:
+                    return sales_orders
 
-                # Work Orders list
-                workorders = item.get("getWorkOrderByWoIds", [])
+            return None
 
-                # Base sales order data
-                base_row = {
-                    "Agreement ID": sales_order.get("agreementId", ""),
-                    "Amount": sales_order.get("amount", ""),
-                    "BUID": sales_order.get("buid", ""),
-                    "BillingCustomerName": billing_addr.get("companyName", "") if billing_addr else "",
-                    "City Code": shipping_addr.get("cityCode", "") if shipping_addr else "",
-                    "Country": shipping_addr.get("countryCode", "") if shipping_addr else "",
-                    "Currency Code": sales_order.get("currencyCode", ""),
-                    "Customer Name Ext": sales_order.get("customerNameExt", ""),
-                    "Customer Num": sales_order.get("customerNumber", ""),
-                    "Customer Po Number": sales_order.get("customerPoNumber", ""),
-                    "CustomerName": shipping_addr.get("companyName", "") if shipping_addr else "",
-                    "DOMS Status": fulfillment.get("status", ""),
-                    "Delivery City": shipping_addr.get("cityName", ""),
-                    "Dp ID": sales_order.get("dpId", ""),
-                    "FO ID": fulfillment.get("foId", ""),
-                    "Facility": fulfillment.get("facility", ""),
-                    "Fulfillment ID": fulfillment.get("fulfillmentId", ""),
-                    "Fulfillment Status": fulfillment.get("fulfillmentStatus", ""),
-                    "IP Date": fulfillment.get("ipDate", ""),
-                    "InstallInstruction2": fulfillment.get("installInstruction2", ""),
-                    "LOB": sales_order.get("lob", ""),
-                    "Location Number": fulfillment.get("locationNumber", ""),
-                    "MN Date": fulfillment.get("mnDate", ""),
-                    "Manifest Date": fulfillment.get("manifestDate", ""),
-                    "Merge Type": fulfillment.get("mergeType", ""),
-                    "Must Arrive By Date": fulfillment.get("mustArriveByDate", ""),
-                    "OFS Status": fulfillment.get("ofsStatus", ""),
-                    "OFS Status Code": fulfillment.get("ofsStatusCode", ""),
-                    "OIC ID": sales_order.get("oicId", ""),
-                    "Order Age": sales_order.get("orderAge", ""),
-                    "Order Amount usd": sales_order.get("orderAmountUsd", ""),
-                    "Order Date": sales_order.get("orderDate", ""),
-                    "Order Type": sales_order.get("orderType", ""),
-                    "PP Date": sales_order.get("ppDate", ""),
-                    "Payment Term Code": sales_order.get("paymentTermCode", ""),
-                    "Rate Usd Transactional": sales_order.get("rateUsdTransactional", ""),
-                    "Reassigned IP Date": sales_order.get("reassignedIpDate", ""),
-                    "Region Code": sales_order.get("region", ""),
-                    "Req Ship Code": fulfillment.get("reqShipCode", ""),
-                    "Revised Delivery Date": fulfillment.get("revisedDeliveryDate", ""),
-                    "SC Date": fulfillment.get("scDate", ""),
-                    "Sales Order ID": sales_order.get("salesOrderId", ""),
-                    "Sales Rep Name": sales_order.get("salesRepName", ""),
-                    "Ship By Date": fulfillment.get("shipByDate", ""),
-                    "Ship Code": fulfillment.get("shipCode", ""),
-                    "ShipToAddress1": shipping_addr.get("address1", ""),
-                    "ShipToAddress2": shipping_addr.get("address2", ""),
-                    "ShipToCompany": shipping_addr.get("companyName", ""),
-                    "ShipToPhone": shipping_addr.get("phoneNumber", ""),
-                    "ShipToPostal": shipping_addr.get("postalCode", ""),
-                    "Shipping Country": shipping_addr.get("countryCode", ""),
-                    "ShippingCityCode": shipping_addr.get("cityCode", ""),
-                    "ShippingContactName": shipping_contact,
-                    "ShippingCustName": shipping_addr.get("companyName", ""),
-                    "ShippingStateCode": shipping_addr.get("stateCode", ""),
-                    "Si Number": fulfillment.get("siNumber", ""),
-                    "Source System ID": sales_order.get("sourceSystemId", ""),
-                    "Source System Status": sales_order.get("sourceSystemStatus", ""),
-                    "State Code": shipping_addr.get("stateCode", ""),
-                    "System Qty": fulfillment.get("systemQty", ""),
-                    "Tax Regstrn Num": sales_order.get("taxRegistrationNum", ""),
-                    "Tie Number": fulfillment.get("tieNumber", "")
-                }
+        flat_list = []
+        ValidCount = []
+        graphql_details = result_map.get("graphql_details", [])
 
-                # If no WOs -> still add one record with just sales order info
-                if not workorders:
-                    rows.append(base_row)
-                else:
-                    # For each WO, merge with base sales order data
-                    for wo in workorders:
-                        wo_row = base_row.copy()
-                        wo_row.update({
-                            "Dell Blanket PO Num": wo.get("dellBlanketPoNum", ""),
-                            "Has Software": wo.get("hasSoftware", False),
-                            "Is Last Leg": wo.get("isLastLeg", ""),
-                            "Is Multipack": wo.get("isMultipack", ""),
-                            "MCID Value": wo.get("mcidValue", ""),
-                            "Make WO Ack Date": wo.get("makeWoAckDate", ""),
-                            "Ship From MCID": wo.get("shipFromMcid", ""),
-                            "Ship To Facility": wo.get("shipToFacility", ""),
-                            "WO OTM Enabled": wo.get("woOtmEnabled", ""),
-                            "WO Ship Mode": wo.get("woShipMode", ""),
-                            "WO_ID": wo.get("woId", "")
-                        })
-                        rows.append(wo_row)
-
-            except Exception as e:
-                print("Error processing item:", str(e))
+        for item_index, item in enumerate(graphql_details):
+            if not isinstance(item, dict):
                 continue
 
-        output.append(rows)
-        return output
+            data = item.get("data", {})
+            if not data:
+                continue
+
+            sales_orders = extract_sales_order(data)
+            workorders = data.get("getWorkOrderByWoIds", [])
+
+            if sales_orders:
+                for so in sales_orders:
+                    fulfillments = safe_get(so, ['fulfillments']) or []
+                    if isinstance(fulfillments, dict):
+                        fulfillments = [fulfillments]
+
+                    if filtersValue:
+                        sales_order_id = safe_get(so, ['salesOrderId'])
+                        if region and region.upper() == safe_get(so, ['region'], "").upper():
+                            ValidCount.append(sales_order_id)
+
+                    if region and region.upper() != safe_get(so, ['region'], "").upper():
+                        continue
+
+                    shipping_addr = pick_address_by_type(so, "SHIPPING")
+                    billing_addr = pick_address_by_type(so, "BILLING")
+                    shipping_phone = pick_address_by_type(fulfillments[0], "SHIPPING") if fulfillments else None
+                    shipping_contact_name = shipping_addr.get("fullName", "") if shipping_addr else ""
+
+                    lob_list = list(filter(
+                        lambda lob: lob and lob.strip() != "",
+                        map(lambda line: safe_get(line, ['lob']), safe_get(fulfillments, [0,'salesOrderLines']) or [])
+                    ))
+                    lob = ", ".join(lob_list)
+
+                    facility_list = list(filter(
+                        lambda f: f and f.strip() != "",
+                        map(lambda line: safe_get(line, ['facility']), safe_get(fulfillments, [0,'salesOrderLines']) or [])
+                    ))
+                    facility = ", ".join(dict.fromkeys(f.strip() for f in facility_list if f))
+
+                    def get_status_date(code):
+                        status_code = safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode'])
+                        if status_code == code:
+                            return dateFormation(safe_get(fulfillments, [0, 'soStatus', 0, 'statusDate']))
+                        return ""
+
+                    # If no Work Orders, still append Sales Order info
+                    if not workorders:
+                        row = {
+                            "Fulfillment ID": safe_get(fulfillments, [0, 'fulfillmentId']),
+                            "BUID": safe_get(so, ['buid']),
+                            "BillingCustomerName": billing_addr.get("companyName", "") if billing_addr else "",
+                            "CustomerName": shipping_addr.get("companyName", "") if shipping_addr else "",
+                            "LOB": lob,
+                            "Sales Order ID": safe_get(so, ['salesOrderId']),
+                            "Agreement ID": safe_get(so, ['agreementId']),
+                            "Amount": safe_get(so, ['totalPrice']),
+                            "Currency Code": safe_get(so, ['currency']),
+                            "Customer Po Number": safe_get(so, ['poNumber']),
+                            "Delivery City": safe_get(fulfillments, [0, 'deliveryCity']),
+                            "DOMS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
+                            "Dp ID": safe_get(so, ['dpid']),
+                            "Fulfillment Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
+                            "Merge Type": safe_get(fulfillments, [0, 'mergeType']),
+                            "InstallInstruction2": get_install_instruction2_id(so),
+                            "PP Date": get_status_date("PP"),
+                            "IP Date": get_status_date("IP"),
+                            "MN Date": get_status_date("MN"),
+                            "SC Date": get_status_date("SC"),
+                            "Location Number": safe_get(so, ['locationNum']),
+                            "OFS Status Code": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
+                            "OFS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
+                            "ShippingCityCode": shipping_addr.get("cityCode", "") if shipping_addr else "",
+                            "ShippingContactName": shipping_contact_name,
+                            "ShippingCustName": shipping_addr.get("companyName", "") if shipping_addr else "",
+                            "ShippingStateCode": shipping_addr.get("stateCode", "") if shipping_addr else "",
+                            "ShipToAddress1": shipping_addr.get("addressLine1", "") if shipping_addr else "",
+                            "ShipToAddress2": shipping_addr.get("addressLine2", "") if shipping_addr else "",
+                            "ShipToCompany": shipping_addr.get("companyName", "") if shipping_addr else "",
+                            "ShipToPhone": (listify(shipping_phone.get("phone", []))[0].get("phoneNumber", "")
+                                            if shipping_phone and listify(shipping_phone.get("phone", [])) else ""),
+                            "ShipToPostal": shipping_addr.get("postalCode", "") if shipping_addr else "",
+                            "Order Age": safe_get(so, ['orderDate']),
+                            "Order Amount usd": safe_get(so, ['rateUsdTransactional']),
+                            "Rate Usd Transactional": safe_get(so, ['rateUsdTransactional']),
+                            "Sales Rep Name": safe_get(so, ['salesrep', 0, 'salesRepName']),
+                            "Shipping Country": shipping_addr.get("country", "") if shipping_addr else "",
+                            "Source System Status": safe_get(fulfillments, [0, 'soStatus', 0,'sourceSystemStsCode']),
+                            "Tie Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'soLineNum']),
+                            "Si Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'siNumber']),
+                            "Req Ship Code": safe_get(fulfillments, [0, 'shipCode']),
+                            "Reassigned IP Date": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
+                            "Payment Term Code": safe_get(fulfillments, [0, 'paymentTerm']),
+                            "Region Code": safe_get(so, ['region']),
+                            "FO ID": safe_get(fulfillments, [0, 'fulfillmentOrder', 0, 'foId']),
+                            "System Qty": safe_get(fulfillments, [0, 'systemQty']),
+                            "Ship By Date": safe_get(fulfillments, [0, 'shipByDate']),
+                            "Facility": facility,
+                            "Tax Regstrn Num": safe_get(fulfillments, [0, 'address', 0, 'taxRegstrnNum']),
+                            "State Code": shipping_addr.get("stateCode", "") if shipping_addr else "",
+                            "City Code": shipping_addr.get("cityCode", "") if shipping_addr else "",
+                            "Customer Num": shipping_addr.get("customerNum", "") if shipping_addr else "",
+                            "Customer Name Ext": shipping_addr.get("customerNameExt", "") if shipping_addr else "",
+                            "Country": shipping_addr.get("country", "") if shipping_addr else "",
+                            "Ship Code": safe_get(fulfillments, [0, 'shipCode']),
+                            "Must Arrive By Date": dateFormation(safe_get(fulfillments, [0, 'mustArriveByDate'])),
+                            "Manifest Date": dateFormation(safe_get(fulfillments, [0, 'manifestDate'])),
+                            "Revised Delivery Date": dateFormation(safe_get(fulfillments, [0, 'revisedDeliveryDate'])),
+                            "Source System ID": safe_get(so, ['sourceSystemId']),
+                            "OIC ID": safe_get(fulfillments, [0, 'oicId']),
+                            "Order Date": dateFormation(safe_get(so, ['orderDate'])),
+                            "Order Type": dateFormation(safe_get(so, ['orderType'])),
+                            # WO fields empty
+                            "Dell Blanket PO Num": "",
+                            "Has Software": False,
+                            "Is Last Leg": "",
+                            "Is Multipack": "",
+                            "MCID Value": "",
+                            "Make WO Ack Date": "",
+                            "Ship From MCID": "",
+                            "Ship To Facility": "",
+                            "WO OTM Enabled": "",
+                            "WO Ship Mode": "",
+                            "WO_ID": ""
+                        }
+                        flat_list.append(row)
+                        continue
+
+                    for WorkOrderData in workorders:
+                        WO_ID = safe_get(WorkOrderData, ['woId'])
+                        DellBlanketPoNum = safe_get(WorkOrderData, ['dellBlanketPoNum'])
+                        ship_to_facility = safe_get(WorkOrderData, ['shipToFacility'])
+                        IsLastLeg = 'Y' if ship_to_facility and 'CUST' in ship_to_facility.upper() else 'N'
+                        ShipFromMcid = safe_get(WorkOrderData, ['vendorSiteId'])
+                        WoOtmEnable = safe_get(WorkOrderData, ['isOtmEnabled'])
+                        WoShipMode = safe_get(WorkOrderData, ['shipMode'])
+                        ismultipack = safe_get(WorkOrderData, ['woLines', 0, "ismultipack"])
+                        wo_lines = safe_get(WorkOrderData, ['woLines'])
+                        has_software = any(safe_get(line, ['woLineType']) == 'SOFTWARE' for line in wo_lines)
+                        MakeWoAckValue = next(
+                            (
+                                dateFormation(status.get("statusDate"))
+                                for status in WorkOrderData.get("woStatusList", [])
+                                if str(status.get("channelStatusCode")) == "3000" and WorkOrderData.get("woType") == "MAKE"
+                            ),
+                            ""
+                        )
+                        McidValue = (
+                            safe_get(WorkOrderData, ['woShipInstr', 0, "mergeFacility"]) or
+                            safe_get(WorkOrderData, ['woShipInstr', 0, "carrierHubCode"])
+                        )
+
+                        # Merge Sales Order row with WO details
+                        row = {
+                            "Fulfillment ID": safe_get(fulfillments, [0, 'fulfillmentId']),
+                            "BUID": safe_get(so, ['buid']),
+                            "BillingCustomerName": billing_addr.get("companyName", "") if billing_addr else "",
+                            "CustomerName": shipping_addr.get("companyName", "") if shipping_addr else "",
+                            "LOB": lob,
+                            "Sales Order ID": safe_get(so, ['salesOrderId']),
+                            "Agreement ID": safe_get(so, ['agreementId']),
+                            "Amount": safe_get(so, ['totalPrice']),
+                            "Currency Code": safe_get(so, ['currency']),
+                            "Customer Po Number": safe_get(so, ['poNumber']),
+                            "Delivery City": safe_get(fulfillments, [0, 'deliveryCity']),
+                            "DOMS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
+                            "Dp ID": safe_get(so, ['dpid']),
+                            "Fulfillment Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
+                            "Merge Type": safe_get(fulfillments, [0, 'mergeType']),
+                            "InstallInstruction2": get_install_instruction2_id(so),
+                            "PP Date": get_status_date("PP"),
+                            "IP Date": get_status_date("IP"),
+                            "MN Date": get_status_date("MN"),
+                            "SC Date": get_status_date("SC"),
+                            "Location Number": safe_get(so, ['locationNum']),
+                            "OFS Status Code": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
+                            "OFS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
+                            "ShippingCityCode": shipping_addr.get("cityCode", "") if shipping_addr else "",
+                            "ShippingContactName": shipping_contact_name,
+                            "ShippingCustName": shipping_addr.get("companyName", "") if shipping_addr else "",
+                            "ShippingStateCode": shipping_addr.get("stateCode", "") if shipping_addr else "",
+                            "ShipToAddress1": shipping_addr.get("addressLine1", "") if shipping_addr else "",
+                            "ShipToAddress2": shipping_addr.get("addressLine2", "") if shipping_addr else "",
+                            "ShipToCompany": shipping_addr.get("companyName", "") if shipping_addr else "",
+                            "ShipToPhone": (listify(shipping_phone.get("phone", []))[0].get("phoneNumber", "")
+                                            if shipping_phone and listify(shipping_phone.get("phone", [])) else ""),
+                            "ShipToPostal": shipping_addr.get("postalCode", "") if shipping_addr else "",
+                            "Order Age": safe_get(so, ['orderDate']),
+                            "Order Amount usd": safe_get(so, ['rateUsdTransactional']),
+                            "Rate Usd Transactional": safe_get(so, ['rateUsdTransactional']),
+                            "Sales Rep Name": safe_get(so, ['salesrep', 0, 'salesRepName']),
+                            "Shipping Country": shipping_addr.get("country", "") if shipping_addr else "",
+                            "Source System Status": safe_get(fulfillments, [0, 'soStatus', 0,'sourceSystemStsCode']),
+                            "Tie Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'soLineNum']),
+                            "Si Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'siNumber']),
+                            "Req Ship Code": safe_get(fulfillments, [0, 'shipCode']),
+                            "Reassigned IP Date": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
+                            "Payment Term Code": safe_get(fulfillments, [0, 'paymentTerm']),
+                            "Region Code": safe_get(so, ['region']),
+                            "FO ID": safe_get(fulfillments, [0, 'fulfillmentOrder', 0, 'foId']),
+                            "System Qty": safe_get(fulfillments, [0, 'systemQty']),
+                            "Ship By Date": safe_get(fulfillments, [0, 'shipByDate']),
+                            "Facility": facility,
+                            "Tax Regstrn Num": safe_get(fulfillments, [0, 'address', 0, 'taxRegstrnNum']),
+                            "State Code": shipping_addr.get("stateCode", "") if shipping_addr else "",
+                            "City Code": shipping_addr.get("cityCode", "") if shipping_addr else "",
+                            "Customer Num": shipping_addr.get("customerNum", "") if shipping_addr else "",
+                            "Customer Name Ext": shipping_addr.get("customerNameExt", "") if shipping_addr else "",
+                            "Country": shipping_addr.get("country", "") if shipping_addr else "",
+                            "Ship Code": safe_get(fulfillments, [0, 'shipCode']),
+                            "Must Arrive By Date": dateFormation(safe_get(fulfillments, [0, 'mustArriveByDate'])),
+                            "Manifest Date": dateFormation(safe_get(fulfillments, [0, 'manifestDate'])),
+                            "Revised Delivery Date": dateFormation(safe_get(fulfillments, [0, 'revisedDeliveryDate'])),
+                            "Source System ID": safe_get(so, ['sourceSystemId']),
+                            "OIC ID": safe_get(fulfillments, [0, 'oicId']),
+                            "Order Date": dateFormation(safe_get(so, ['orderDate'])),
+                            "Order Type": dateFormation(safe_get(so, ['orderType'])),
+                            # WO-specific fields
+                            "Dell Blanket PO Num": DellBlanketPoNum,
+                            "Has Software": has_software,
+                            "Is Last Leg": IsLastLeg,
+                            "Is Multipack": ismultipack,
+                            "MCID Value": McidValue,
+                            "Make WO Ack Date": MakeWoAckValue,
+                            "Ship From MCID": ShipFromMcid,
+                            "Ship To Facility": ship_to_facility,
+                            "WO OTM Enabled": WoOtmEnable,
+                            "WO Ship Mode": WoShipMode,
+                            "WO_ID": WO_ID
+                        }
+                        flat_list.append(row)
+
+        count_valid = len(ValidCount)
+        if not flat_list:
+            return {"error": "No Data Found"}
+
+        if format_type == "export":
+            data = [{"Count ": count_valid}, flat_list] if filtersValue else flat_list
+            ValidCount.clear()
+            return data
+
+        elif format_type == "grid":
+            desired_order = list(flat_list[0].keys())
+            rows = []
+            for item in flat_list:
+                row = {"columns": [{"value": item.get(k, "")} for k in desired_order]}
+                rows.append(row)
+            table_grid_output = tablestructural(rows, region) if rows else []
+            if filtersValue:
+                table_grid_output["Count"] = count_valid
+            ValidCount.clear()
+            return table_grid_output
+
+        return flat_list
 
     except Exception as e:
-        print("Error in OutputFormat:", str(e))
-        return []
+        return {"error": str(e)}
