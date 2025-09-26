@@ -1,4 +1,6 @@
-def newOutputFormat_withSequence(result_map, SequenceValue, format_type=None, region=None, filtersValue=None):
+from typing import Sequence
+
+def newOutputFormat(result_map, SequenceValue, format_type=None, region=None, filtersValue=None):
     try:
         flat_list = []
 
@@ -7,36 +9,44 @@ def newOutputFormat_withSequence(result_map, SequenceValue, format_type=None, re
             woId = seq.get("workOrder", {}).get("woId")
             fulfillmentId = seq.get("fulfillment", {}).get("fulfillmentId")
 
-            # Find the SO data
-            so = next(
-                (so for item in result_map
-                 for so in item.get("getSalesOrderByFfids", {}).get("salesOrders", [])
-                 if safe_get(so, ['salesOrderId']) == salesOrderId),
-                None
-            )
-
-            # Find the WO data
-            wo_data = next(
-                (wo for item in result_map
-                 for wo in item.get("getWorkOrderByWoIds", [])
-                 if safe_get(wo, ['woId']) == woId),
-                None
-            )
-
+            # Find Sales Order
+            so = None
+            for item in result_map:
+                for s in item.get("getSalesOrderByFfids", {}).get("salesOrders", []):
+                    if str(safe_get(s, ['salesOrderId'])) == str(salesOrderId):
+                        so = s
+                        break
+                if so:
+                    break
             if not so:
-                continue  # skip if SO not found
+                print(f"SO not found for salesOrderId: {salesOrderId}")
+                continue
 
-            # Get fulfillments from SO
+            # Find Work Order
+            wo_data = None
+            for item in result_map:
+                for w in item.get("getWorkOrderByWoIds", []):
+                    if str(safe_get(w, ['woId'])) == str(woId):
+                        wo_data = w
+                        break
+                if wo_data:
+                    break
+
+            # Find Fulfillment
             fulfillments = safe_get(so, ['fulfillments']) or []
             if isinstance(fulfillments, dict):
                 fulfillments = [fulfillments]
 
-            fulfillment = next(
-                (f for f in fulfillments if safe_get(f, ['fulfillmentId']) == fulfillmentId),
-                {}
-            )
+            fulfillment = None
+            for f in fulfillments:
+                if str(safe_get(f, ['fulfillmentId'])) == str(fulfillmentId):
+                    fulfillment = f
+                    break
+            if not fulfillment:
+                print(f"Fulfillment not found for fulfillmentId: {fulfillmentId}")
+                fulfillment = {}
 
-            # Shipping and billing
+            # Addresses
             shipping_addr = pick_address_by_type(so, "SHIPPING")
             billing_addr = pick_address_by_type(so, "BILLING")
             shipping_phone = pick_address_by_type(fulfillment, "SHIPPING") if fulfillment else None
@@ -86,7 +96,7 @@ def newOutputFormat_withSequence(result_map, SequenceValue, format_type=None, re
                     )
                 }
 
-            # Build the final row
+            # Build row
             row = {
                 "Fulfillment ID": safe_get(fulfillment, ['fulfillmentId']),
                 "BUID": safe_get(so, ['buid']),
@@ -150,16 +160,19 @@ def newOutputFormat_withSequence(result_map, SequenceValue, format_type=None, re
                 "Source System ID": safe_get(so, ['sourceSystemId']),
                 "OIC ID": safe_get(fulfillment, ['oicId']),
                 "Order Date": dateFormation(safe_get(so, ['orderDate'])),
-                "Order Type": dateFormation(safe_get(so, ['orderType']))
+                "Order Type": dateFormation(safe_get(so, ['orderType'])),
+                # WO fields default to ""
+                **{k: "" for k in ["WO_ID", "Dell Blanket PO Num", "Ship To Facility", "Is Last Leg",
+                                   "Ship From MCID", "WO OTM Enabled", "WO Ship Mode", "Is Multipack",
+                                   "Has Software", "Make WO Ack Date", "MCID Value"]}
             }
 
-            # Merge WO fields if exists
             if wo_row:
                 row.update(wo_row)
 
             flat_list.append(row)
 
-        # Handle export/grid
+        # Count valid
         count_valid = len(flat_list)
         if not flat_list:
             return {"error": "No Data Found"}
@@ -168,7 +181,6 @@ def newOutputFormat_withSequence(result_map, SequenceValue, format_type=None, re
             data = [{"Count ": count_valid}, flat_list] if filtersValue else flat_list
             ValidCount.clear()
             return data
-
         elif format_type == "grid":
             desired_order = list(flat_list[0].keys())
             rows = [{"columns": [{"value": item.get(k, "")} for k in desired_order]} for item in flat_list]
