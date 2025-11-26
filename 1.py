@@ -1,946 +1,1402 @@
-from flask import Flask, request, jsonify
-import nest_asyncio
-import asyncio
-import aiohttp
-import requests
-from dataclasses import dataclass, asdict
-from typing import List, Dict, Optional
-from functools import reduce
-import traceback
-import time
-import os
-import sys
-import json
 
-nest_asyncio.apply()
-
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from graphqlQueries_new import *
-
-configABSpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config', 'config_ge4.json'))
-with open(configABSpath, 'r') as file:
-    configPath = json.load(file)
-
-SequenceValue = []
-ValidCount  = []
-ASNHeaderData = []
-ASNDetailsData = []
-def newmainfunction(filters, format_type, region, filtersKey):
-    regionFrom = region.upper()
+same like following sample format code and response i need this following DownloadOrderEnvelopeReport
+ 
+def DownloadOrderEnvelopeReport(filters, region, endPoint):
     path = getPath(region)
+    url = path.get('OMTC') + endPoint
 
-    graphql_request = []
-    finalResult = []
-    FulfillID = []
-    
-    if "Fullfillment Id" in filters:
-        Fullfillment_Id_key = "Fullfillment Id"
-        uniqueFullfillment_ids = ",".join(sorted(set(filters[Fullfillment_Id_key].split(','))))
-        filters[Fullfillment_Id_key] = uniqueFullfillment_ids
+    if not url:
+        return make_response(jsonify({"error": "Invalid region or URL not configured"}), 400)
 
-        if filters.get(Fullfillment_Id_key):
-            Fullfillment_ids = list(map(str.strip, filters[Fullfillment_Id_key].split(",")))
-            for ffid_chunk in chunk_list(Fullfillment_ids, 10):
-                payload = {"query": fetch_keysphereFullfillment_query(ffid_chunk)}
-                response = requests.post(path['FID'], json=payload, verify=False)
-                data = response.json()
+    if not isinstance(filters, dict):
+        return make_response(jsonify({"error": "Filters must be a dictionary"}), 400)
 
-                if "errors" in data:
-                    continue
+    from_date = filters.get("FromDate")
+    to_date = filters.get("ToDate")
 
-                result = data.get("data", {}).get("getByFulfillmentids", {})
-               
-                for entry in result.get("result", []):
-                    SequenceValue.append(entry)
-                    salesid     = entry.get("salesOrder", {}).get("salesOrderId")
-                    woiid       = entry.get("workOrders", [])
-                    ffiid       = [entry.get("fulfillment", {})]
-                    f0id        = entry.get("fulfillmentOrders", [])
-                    ASN         = entry.get("asnNumbers", [])
-                    region      = entry.get('salesOrder').get('region')
-                    
-                    if isinstance(result, dict):
-                        if regionFrom == region:
-                            fullffid = ffiid[0].get("fulfillmentId")
+    if not from_date or not to_date:
+        return make_response(jsonify({"error": "FromDate and ToDate are required in filters"}), 400)
 
-                            if filtersKey == "Fullfillment Id":
-                                ValidCount.append(fullffid)
+    payload = {
+        "FromDate": from_date,
+        "ToDate": to_date,
+        "Region": region
+    }
+  
 
-                            if len(woiid) > 0:                               
-                                work_order_ids = list(map(lambda w: w['woId'], woiid)) if woiid else []
-
-                                existing_values = set(filters.get("wo_id", "").split(",")) if filters.get("wo_id") else set()
-                                new_values = set(work_order_ids)
-                                combined_values = existing_values.union(new_values)
-                                filters["wo_id"] = ",".join(sorted(combined_values))
-
-                                Full_fillment_ids = filters["Fullfillment Id"].split(",")
-                                
-                                if fullffid in Full_fillment_ids:
-                                    Full_fillment_ids.remove(fullffid)
-                                if len(Full_fillment_ids) > 0:
-                                    filters["Fullfillment Id"] = ",".join(sorted(Full_fillment_ids))
-                                else:
-                                    filters.pop("Fullfillment Id", None)
-
-                            if len(ASN) > 0 and not woiid:
-                                for ASNResult in ASN:
-                                    sourceManifestID = ASNResult.get('sourceManifestId')
-                                    shipFromVendorID = ASNResult.get('shipFromVendorId')
-
-                                    if not sourceManifestID or not shipFromVendorID:
-                                        continue
-
-                                    payload = {"query": fetch_AsnOrderByID_query(shipFromVendorID, sourceManifestID)}
-                                    response = requests.post(path['ASNODM'], json=payload, verify=False)
-                                    ASNheaderdata = response.json()
-
-                                    existing_combinations = set()
-                                    existing_combinations.update(
-                                        (entry.get("shipFromVendorId"), entry.get("sourceManifestId")) 
-                                        for entry in ASNHeaderData
-                                        if entry.get("shipFromVendorId") and entry.get("sourceManifestId")
-                                    )
-                                    existing_combinations.update(
-                                        (entry.get("shipFromVendorId"), entry.get("sourceManifestId")) 
-                                        for entry in ASNDetailsData
-                                        if entry.get("shipFromVendorId") and entry.get("sourceManifestId")
-                                    )
-
-                                    for ASNentry in ASNheaderdata.get('data', {}).get('getAsnHeaderById', []):
-                                        current_combo = (ASNentry['shipFromVendorId'], ASNentry['sourceManifestId'])
-                                        if current_combo not in existing_combinations:
-                                            ASNHeader = {
-                                                'FullfillmentID': fullffid,
-                                                'WorkOrderID': "",
-                                                'airwayBillNum': ASNentry['airwayBillNum'],
-                                                'shipFromVendorSiteId': ASNentry['shipFromVendorSiteId'],
-                                                'shipFromVendorId': ASNentry['shipFromVendorId'],
-                                                'sourceManifestId': ASNentry['sourceManifestId'],
-                                                'shipMode': ASNentry['shipMode'],
-                                                'shipToVendorSiteId': ASNentry['shipToVendorSiteId']
-                                            }
-                                            ASNHeaderData.append(ASNHeader)
-                                            existing_combinations.add(current_combo)
-
-                                    payload = {"query": fetch_AsnDetailById_query(region, shipFromVendorID, sourceManifestID)}
-                                    response = requests.post(path['ASNODM'], json=payload, verify=False)
-                                    ASNheaderdetailsdata = response.json()
-
-                                    asn_detail = ASNheaderdetailsdata.get('data', {})
-
-                                    if asn_detail is not None:
-                                        ASNDetailresult = [ASNheaderdetailsdata.get('data', {}).get('getAsnDetailById', {})]
-
-                                        for ASNDetailentry in ASNDetailresult:
-                                            current_combo = (ASNDetailentry.get('shipFromVendorId'), ASNDetailentry.get('sourceManifestId'))
-                                            if current_combo not in existing_combinations:
-                                                ASNDetailentry["FullfillmentID"] = fullffid
-                                                ASNDetailentry["WorkOrderID"] = ""
-                                                ASNDetailsData.append(ASNDetailentry)
-                                                existing_combinations.add(current_combo)
-
-    if "Sales_Order_id" in filters:
-        salesOrder_key = "Sales_Order_id"
-        uniqueSalesOrder_ids = ",".join(sorted(set(filters[salesOrder_key].split(','))))
-        filters[salesOrder_key] = uniqueSalesOrder_ids
-
-        if filters.get(salesOrder_key):
-            salesorder_ids = list(map(str.strip, filters[salesOrder_key].split(",")))
-
-            for soid_chunk in chunk_list(salesorder_ids,10):
-                payload = {"query": fetch_keysphereSalesorder_query(soid_chunk)}
-                response = requests.post(path['FID'], json=payload, verify=False)
-                data = response.json()
-               
-                if "errors" in data:
-                    continue
-
-                result = data.get("data", {}).get("getBySalesorderids", {})
-               
-                for entry in result.get("result", []):
-                    salesid     = entry.get("salesOrder", {}).get("salesOrderId")
-                    woiid       = entry.get("workOrders", [])
-                    ffiid       = entry.get("fulfillment", [])
-                    f0id        = entry.get("fulfillmentOrders", [])
-                    ASN         = entry.get("asnNumbers", [])
-                    region      = entry.get('salesOrder').get('region')
-                    
-                    if isinstance(result, dict):
-                        if regionFrom == region:
-                            if filtersKey == "Sales_Order_id":
-                                ValidCount.append(salesid)
-                            fullffid = ffiid[0].get("fulfillmentId")
-                            if len(woiid) > 0:
-                            
-                                work_order_ids = list(map(lambda w: w['woId'], woiid)) if woiid else []
-
-                                existing_values = set(filters.get("wo_id", "").split(",")) if filters.get("wo_id") else set()
-                                new_values = set(work_order_ids)
-                                combined_values = existing_values.union(new_values)
-                                filters["wo_id"] = ",".join(sorted(combined_values))
-
-                            if len(ffiid) > 0:
-                                ffi_ids = list(map(lambda f: f['fulfillmentId'], ffiid)) if ffiid else []
-                                
-                                existing_ffi = set(filters.get("Fullfillment Id", "").split(",")) if filters.get("Fullfillment Id") else set()
-                                new_ffi = set(ffi_ids)
-                                combined_ffi = existing_ffi.union(new_ffi)
-                                if not woiid:
-                                    filters["Fullfillment Id"] = ",".join(sorted(combined_ffi))
-                            
-                            if len(ASN) > 0 and not woiid:
-                                for ASNResult in ASN:
-                                    sourceManifestID = ASNResult.get('sourceManifestId')
-                                    shipFromVendorID = ASNResult.get('shipFromVendorId')
-
-                                    if not sourceManifestID or not shipFromVendorID:
-                                        continue
-
-                                    payload = {"query": fetch_AsnOrderByID_query(shipFromVendorID, sourceManifestID)}
-                                    response = requests.post(path['ASNODM'], json=payload, verify=False)
-                                    ASNheaderdata = response.json()
-
-                                    existing_combinations = set()
-                                    existing_combinations.update(
-                                        (entry.get("shipFromVendorId"), entry.get("sourceManifestId")) 
-                                        for entry in ASNHeaderData
-                                        if entry.get("shipFromVendorId") and entry.get("sourceManifestId")
-                                    )
-                                    existing_combinations.update(
-                                        (entry.get("shipFromVendorId"), entry.get("sourceManifestId")) 
-                                        for entry in ASNDetailsData
-                                        if entry.get("shipFromVendorId") and entry.get("sourceManifestId")
-                                    )
-
-                                    for ASNentry in ASNheaderdata.get('data', {}).get('getAsnHeaderById', []):
-                                        current_combo = (ASNentry['shipFromVendorId'], ASNentry['sourceManifestId'])
-                                        if current_combo not in existing_combinations:
-                                            ASNHeader = {
-                                                'FullfillmentID': fullffid,
-                                                'WorkOrderID': "",
-                                                'airwayBillNum': ASNentry['airwayBillNum'],
-                                                'shipFromVendorSiteId': ASNentry['shipFromVendorSiteId'],
-                                                'shipFromVendorId': ASNentry['shipFromVendorId'],
-                                                'sourceManifestId': ASNentry['sourceManifestId'],
-                                                'shipMode': ASNentry['shipMode'],
-                                                'shipToVendorSiteId': ASNentry['shipToVendorSiteId']
-                                            }
-                                            ASNHeaderData.append(ASNHeader)
-                                            existing_combinations.add(current_combo)
-
-                                    payload = {"query": fetch_AsnDetailById_query(region, shipFromVendorID, sourceManifestID)}
-                                    response = requests.post(path['ASNODM'], json=payload, verify=False)
-                                    ASNheaderdetailsdata = response.json()
-
-                                    asn_detail = ASNheaderdetailsdata.get('data', {})
-
-                                    if asn_detail is not None:
-                                        ASNDetailresult = [ASNheaderdetailsdata.get('data', {}).get('getAsnDetailById', {})]
-
-                                        for ASNDetailentry in ASNDetailresult:
-                                            current_combo = (ASNDetailentry.get('shipFromVendorId'), ASNDetailentry.get('sourceManifestId'))
-                                            if current_combo not in existing_combinations:
-                                                ASNDetailentry["FullfillmentID"] = fullffid
-                                                ASNDetailentry["WorkOrderID"] = ""
-                                                ASNDetailsData.append(ASNDetailentry)
-                                                existing_combinations.add(current_combo)
-
-                            filters.pop("Sales_Order_id", None)
-    
-    if "wo_id" in filters:
-        workOrder_key = "wo_id"
-        uniqueWorkOrder_ids = ",".join(sorted(set(filters[workOrder_key].split(','))))
-        filters[workOrder_key] = uniqueWorkOrder_ids
-
-        if filters.get(workOrder_key):
-            workorder_ids = list(map(str.strip, filters[workOrder_key].split(",")))
-            for woid_chunk in chunk_list(workorder_ids,10):
-                payload = {"query": fetch_keysphereWorkorder_query(woid_chunk)}
-                response = requests.post(path['FID'], json=payload, verify=False)
-                data = response.json()
-
-                if "errors" in data:
-                    continue
-
-                result = data.get("data", {}).get("getByWorkorderids", {})
-                for entry in result.get("result", []):
-                    SequenceValue.append(entry)
-                    salesid     = entry.get("salesOrder", {}).get("salesOrderId")
-                    woiid       = [entry.get("workOrder", {})]
-                    ffiid       = [entry.get("fulfillment", {})]
-                    f0id        = entry.get("fulfillmentOrders", [])
-                    ASN         = entry.get("asnNumbers", [])
-                    region      = entry.get('salesOrder').get('region')
-
-                    if isinstance(result, dict):
-                        if regionFrom == region:
-                            wooiid = woiid[0].get("woId")
-                            ffmmiid = ffiid[0].get("fulfillmentId")
-                            if filtersKey == "wo_id":
-                                ValidCount.append(wooiid)
-                            if len(woiid) > 0:
-                                work_order_ids = list(map(lambda w: w['woId'], woiid)) if woiid else []
-
-                                existing_values = set(filters.get("wo_id", "").split(",")) if filters.get("wo_id") else set()
-                                new_values = set(work_order_ids)
-                                combined_values = existing_values.union(new_values)
-                                filters["wo_id"] = ",".join(sorted(combined_values))
-
-                                graphql_request.append({
-                                        "url": path['WORKORDER'],
-                                        "query": fetch_workOrder_query(work_order_ids)
-                                    })                            
-
-                            if len(ffiid) > 0:
-                                ffi_ids = list(map(lambda f: f['fulfillmentId'], ffiid)) if ffiid else []
-                                
-                                existing_ffi = set(filters.get("ffi_id", "").split(",")) if filters.get("ffi_id") else set()
-                                new_ffi = set(ffi_ids)
-                                combined_ffi = existing_ffi.union(new_ffi)
-                                if not woiid:
-                                    filters["Fullfillment Id"] = ",".join(sorted(combined_ffi))
-
-                                graphql_request.append({
-                                        "url": path['SALESFULLFILLMENT'],
-                                        "query": fetch_Fullfillment_query(ffi_ids)
-                                    })
-                            
-                            if len(ASN) > 0:
-                                for ASNResult in ASN:
-                                    sourceManifestID = ASNResult.get('sourceManifestId')
-                                    shipFromVendorID = ASNResult.get('shipFromVendorId')
-
-                                    if not sourceManifestID or not shipFromVendorID:
-                                        continue
-
-                                    payload = {"query": fetch_AsnOrderByID_query(shipFromVendorID, sourceManifestID)}
-                                    response = requests.post(path['ASNODM'], json=payload, verify=False)
-                                    ASNheaderdata = response.json()
-
-                                    existing_combinations = set()
-                                    existing_combinations.update(
-                                        (entry.get("shipFromVendorId"), entry.get("sourceManifestId")) 
-                                        for entry in ASNHeaderData
-                                        if entry.get("shipFromVendorId") and entry.get("sourceManifestId")
-                                    )
-                                    existing_combinations.update(
-                                        (entry.get("shipFromVendorId"), entry.get("sourceManifestId")) 
-                                        for entry in ASNDetailsData
-                                        if entry.get("shipFromVendorId") and entry.get("sourceManifestId")
-                                    )
-
-                                    for ASNentry in ASNheaderdata.get('data', {}).get('getAsnHeaderById', []):
-                                        current_combo = (ASNentry['shipFromVendorId'], ASNentry['sourceManifestId'])
-                                        if current_combo not in existing_combinations:
-                                            ASNHeader = {
-                                                'FullfillmentID': ffmmiid,
-                                                'WorkOrderID': wooiid,
-                                                'airwayBillNum': ASNentry['airwayBillNum'],
-                                                'shipFromVendorSiteId': ASNentry['shipFromVendorSiteId'],
-                                                'shipFromVendorId': ASNentry['shipFromVendorId'],
-                                                'sourceManifestId': ASNentry['sourceManifestId'],
-                                                'shipMode': ASNentry['shipMode'],
-                                                'shipToVendorSiteId': ASNentry['shipToVendorSiteId']
-                                            }
-                                            ASNHeaderData.append(ASNHeader)
-                                            existing_combinations.add(current_combo)
-
-                                    payload = {"query": fetch_AsnDetailById_query(region, shipFromVendorID, sourceManifestID)}
-                                    response = requests.post(path['ASNODM'], json=payload, verify=False)
-                                    ASNheaderdetailsdata = response.json()
-
-                                    asn_detail = ASNheaderdetailsdata.get('data', {})
-
-                                    if asn_detail is not None:
-                                        ASNDetailresult = [ASNheaderdetailsdata.get('data', {}).get('getAsnDetailById', {})]
-
-                                        for ASNDetailentry in ASNDetailresult:
-                                            current_combo = (ASNDetailentry.get('shipFromVendorId'), ASNDetailentry.get('sourceManifestId'))
-                                            if current_combo not in existing_combinations:
-                                                ASNDetailentry["FullfillmentID"] = ffmmiid
-                                                ASNDetailentry["WorkOrderID"] = wooiid
-                                                ASNDetailsData.append(ASNDetailentry)
-                                                existing_combinations.add(current_combo)
-                
-    if "Fullfillment Id" in filters:
-        Fullfillment_Id_key = "Fullfillment Id"
-        uniqueFullfillment_ids = ",".join(sorted(set(filters[Fullfillment_Id_key].split(','))))
-        filters[Fullfillment_Id_key] = uniqueFullfillment_ids
-
-        if filters.get(Fullfillment_Id_key):
-            Fullfillment_ids = list(map(str.strip, filters[Fullfillment_Id_key].split(",")))
-            for ffid_chunk in chunk_list(Fullfillment_ids,10):
-                payload = {"query": fetch_keysphereFullfillment_query(ffid_chunk)}
-                response = requests.post(path['FID'], json=payload, verify=False)
-                data = response.json()
-
-                if "errors" in data:
-                    continue
-
-                result = data.get("data", {}).get("getByFulfillmentids", {})
-
-                for entry in result.get("result", []):
-                    SequenceValue.append(entry)
-                    salesid     = entry.get("salesOrder", {}).get("salesOrderId")
-                    woiid       = entry.get("workOrder", [])
-                    ffiid       = [entry.get("fulfillment", {})]
-                    f0id        = entry.get("fulfillmentOrders", [])
-                    ASN         = entry.get("asnNumbers", [])
-                    region      = entry.get('salesOrder').get('region')
-               
-                    if isinstance(result, dict):
-                        if regionFrom == region:
-                            fullffid = ffiid[0].get("fulfillmentId")
-
-                            if len(ffiid) > 0:
-                                ffi_ids = list(map(lambda f: f['fulfillmentId'], ffiid)) if ffiid else []
-                                
-                                existing_ffi = set(filters.get("Fullfillment Id", "").split(",")) if filters.get("Fullfillment Id") else set()
-                                new_ffi = set(ffi_ids)
-                                combined_ffi = existing_ffi.union(new_ffi)
-
-                                if not woiid:
-                                    filters["Fullfillment Id"] = ",".join(sorted(combined_ffi))
-
-                                graphql_request.append({
-                                        "url": path['SALESFULLFILLMENT'],
-                                        "query": fetch_Fullfillment_query(ffi_ids)
-                                    })
-
-                            if len(ASN) > 0 and not woiid:
-                                for ASNResult in ASN:
-                                    sourceManifestID = ASNResult.get('sourceManifestId')
-                                    shipFromVendorID = ASNResult.get('shipFromVendorId')
-
-                                    if not sourceManifestID or not shipFromVendorID:
-                                        continue
-
-                                    payload = {"query": fetch_AsnOrderByID_query(shipFromVendorID, sourceManifestID)}
-                                    response = requests.post(path['ASNODM'], json=payload, verify=False)
-                                    ASNheaderdata = response.json()
-
-                                    existing_combinations = set()
-                                    existing_combinations.update(
-                                        (entry.get("shipFromVendorId"), entry.get("sourceManifestId")) 
-                                        for entry in ASNHeaderData
-                                        if entry.get("shipFromVendorId") and entry.get("sourceManifestId")
-                                    )
-                                    existing_combinations.update(
-                                        (entry.get("shipFromVendorId"), entry.get("sourceManifestId")) 
-                                        for entry in ASNDetailsData
-                                        if entry.get("shipFromVendorId") and entry.get("sourceManifestId")
-                                    )
-
-                                    for ASNentry in ASNheaderdata.get('data', {}).get('getAsnHeaderById', []):
-                                        current_combo = (ASNentry['shipFromVendorId'], ASNentry['sourceManifestId'])
-                                        if current_combo not in existing_combinations:
-                                            ASNHeader = {
-                                                'FullfillmentID': fullffid,
-                                                'WorkOrderID': "",
-                                                'airwayBillNum': ASNentry['airwayBillNum'],
-                                                'shipFromVendorSiteId': ASNentry['shipFromVendorSiteId'],
-                                                'shipFromVendorId': ASNentry['shipFromVendorId'],
-                                                'sourceManifestId': ASNentry['sourceManifestId'],
-                                                'shipMode': ASNentry['shipMode'],
-                                                'shipToVendorSiteId': ASNentry['shipToVendorSiteId']
-                                            }
-                                            ASNHeaderData.append(ASNHeader)
-                                            existing_combinations.add(current_combo)
-
-                                    payload = {"query": fetch_AsnDetailById_query(region, shipFromVendorID, sourceManifestID)}
-                                    response = requests.post(path['ASNODM'], json=payload, verify=False)
-                                    ASNheaderdetailsdata = response.json()
-
-                                    asn_detail = ASNheaderdetailsdata.get('data', {})
-
-                                    if asn_detail is not None:
-                                        ASNDetailresult = [ASNheaderdetailsdata.get('data', {}).get('getAsnDetailById', {})]
-
-                                        for ASNDetailentry in ASNDetailresult:
-                                            current_combo = (ASNDetailentry.get('shipFromVendorId'), ASNDetailentry.get('sourceManifestId'))
-                                            if current_combo not in existing_combinations:
-                                                ASNDetailentry["FullfillmentID"] = fullffid
-                                                ASNDetailentry["WorkOrderID"] = ""
-                                                ASNDetailsData.append(ASNDetailentry)
-                                                existing_combinations.add(current_combo)
-
-                            filters.pop("Fullfillment Id", None)
-                    
-    results = asyncio.run(run_all(graphql_request))
-    return results
-    
-async def fetch_graphql(session, url, query):
-    async with session.post(url, json={"query": query}) as response:
-        return await response.json()
-
-async def run_all(graphql_request):
-    async with aiohttp.ClientSession() as session:
-        tasks = [
-            fetch_graphql(session, req["url"], req["query"])
-            for req in graphql_request
-        ]
-        results = await asyncio.gather(*tasks)
-        return results
-
-def newOutputFormat(result_map, format_type=None, region=None, filtersValue=None):
     try:
-        flat_list = []
+        response = requests.post(url, json=payload, verify=cert_path)
+        response.raise_for_status()
+        data = response.json()
+        
+        return make_response(json.dumps(data, indent=4, sort_keys=False, ensure_ascii=False),
+                             200,
+                             {"Content-Type": "application/json; charset=utf-8"}
+                             )
 
-        FlatData = [] 
-        wo_data_list = []
-        final_merged_data = []
-        for result in result_map:
-            if result.get('data', {}) is None:
-                continue
-            workOrderData = result.get('data',{}).get('getWorkOrderByWoIds',[])
-            ffIdData = result.get('data',{}).get('getSalesOrderByFfids',{}).get('salesOrders',[])
-            
-            if workOrderData:
-                workorders_Data = workOrderData[0]
-                wo_row = {
-                    "WO_ID": safe_get(workorders_Data, ['woId']),
-                    "Dell Blanket PO Num": safe_get(workorders_Data, ['dellBlanketPoNum']),
-                    "Ship To Facility": safe_get(workorders_Data, ['shipToFacility']),
-                    "Is Last Leg": 'Y' if safe_get(workorders_Data, ['shipToFacility']) else 'N',
-                    "Ship From MCID": safe_get(workorders_Data, ['vendorSiteId']),
-                    "WO OTM Enabled": safe_get(workorders_Data, ['isOtmEnabled']),
-                    "WO Ship Mode": safe_get(workorders_Data, ['shipMode']),
-                    "Is Multipack": safe_get(workorders_Data, ['woLines', 0, 'ismultipack']),
-                    "Has Software": any(safe_get(line, ['woLineType']) == 'SOFTWARE' for line in safe_get(workorders_Data, ['woLines']) or []),
-                    "Make WO Ack Date": next(
-                        (dateFormation(status.get("statusDate"))
-                            for status in workorders_Data.get("woStatusList", [])
-                            if str(status.get("channelStatusCode")) == "3000" and workorders_Data.get("woType") == "MAKE"),
-                        ""
-                    ),
-                    "MCID Value": (
-                        safe_get(workorders_Data, ['woShipInstr', 0, "mergeFacility"]) or
-                        safe_get(workorders_Data, ['woShipInstr', 0, "carrierHubCode"])
-                    ),
-                    "Merge Facility": safe_get(workorders_Data, ['woShipInstr', 0, "mergeFacility"])
+    except requests.exceptions.RequestException as e:
+        return make_response(jsonify({"error": str(e)}), 500)
+
+response is 
+
+{
+    "Results": [
+        {
+            "SONumber": "4447347893",
+            "OICId": "6f9e5526-30e4-42f3-a8d3-fc6489dc1f4b",
+            "Envelopes": [
+                {
+                    "EnvelopeId": "22186",
+                    "OICId": "6f9e5526-30e4-42f3-a8d3-fc6489dc1f4b",
+                    "SONumber": "4447347893",
+                    "MessageType": "PREGSONOTIFICATION",
+                    "Direction": "IN",
+                    "Channel": "OIC",
+                    "Status": "CMP",
+                    "EnvMsgTextId": "22046",
+                    "TraceId": "76532dca-bbe5-4800-ac2c-515b3cd163f9",
+                    "CreateDate": "2025-11-06T07:23:40.801947",
+                    "ModifyDate": "2025-11-06T07:23:40.801947",
+                    "CreateBy": "PreGSONotifyReceiver",
+                    "ModifyBy": "PreGSONotifyReceiver",
+                    "Region": "EMEA",
+                    "PartitionDate": "2025-11-06T07:23:40.801774",
+                    "IsPregSO": "Y",
+                    "StartProcTime": null,
+                    "TryCount": null,
+                    "ErrorCode": "",
+                    "ErrorDescription": "",
+                    "ProcessingBy": ""
+                },
+                {
+                    "EnvelopeId": "22191",
+                    "OICId": "6f9e5526-30e4-42f3-a8d3-fc6489dc1f4b",
+                    "SONumber": "4447347893",
+                    "MessageType": "NETWORKPLANRESP",
+                    "Direction": "OUT",
+                    "Channel": "OIC",
+                    "Status": "CMP",
+                    "EnvMsgTextId": "22051",
+                    "TraceId": "76532dca-bbe5-4800-ac2c-515b3cd163f9",
+                    "CreateDate": "2025-11-06T07:24:23.269475",
+                    "ModifyDate": "2025-11-06T07:24:23.269475",
+                    "CreateBy": "NetworkPlanRespProcess",
+                    "ModifyBy": "NetworkPlanRespProcess",
+                    "Region": "EMEA",
+                    "PartitionDate": "2025-11-06T07:24:23.27591",
+                    "IsPregSO": "Y",
+                    "StartProcTime": "2025-11-06T07:24:23.27591",
+                    "TryCount": null,
+                    "ErrorCode": "",
+                    "ErrorDescription": "",
+                    "ProcessingBy": ""
                 }
-                wo_data_list.append(wo_row)
-            else:
-                so = ffIdData[0]
+            ],
+            "Fulfillments": [
+                {
+                    "FulfillmentMessageId": "",
+                    "FulfillmentId": "",
+                    "OICId": "",
+                    "MessageType": "",
+                    "Status": "",
+                    "Direction": "",
+                    "Exception": "",
+                    "ChannelCode": "",
+                    "FulfillmentMsgTextId": "",
+                    "Region": "",
+                    "CreateDate": null,
+                    "ModifyDate": null,
+                    "CreateBy": "",
+                    "ModifyBy": "",
+                    "PartitionDate": null,
+                    "SONumber": "",
+                    "WOId": "",
+                    "StartProcTime": null,
+                    "TryCount": null,
+                    "FilePath": "",
+                    "ErrorCode": "",
+                    "ErrorDescription": "",
+                    "ProcessingBy": ""
+                }
+            ]
+        }
+    ]
+}
 
-                fulfillments = safe_get(so, ['fulfillments']) or []
+======================================================================
 
-                workorders_Data = wo_data_list[0] if wo_data_list else []
 
-                if isinstance(fulfillments, dict):
-                    fulfillments = [fulfillments]
-                fulfillment_id = safe_get(fulfillments, [0, 'fulfillmentId'])
-                WorkOrderIDD = safe_get(workorders_Data, ['WO_ID'])                
+This is sample format 
 
-                matching_asnheader_records = [
-                                                asn for asn in ASNHeaderData
-                                                if (str(asn.get('WorkOrderID', '')).strip() != "" and str(asn.get('WorkOrderID', '')).strip() == str(WorkOrderIDD).strip())
-                                                or (str(asn.get('WorkOrderID', '')).strip() == "" and str(asn.get('FullfillmentID', '')).strip() == str(fulfillment_id).strip())
-                                            ]
+elif format_type == "grid":
+                desired_order = [
+                                    "Fulfillment ID", "BUID", "BillingCustomerName", "CustomerName", "LOB", "Sales Order ID", "Agreement ID",
+                                    "Amount", "Currency Code", "Customer Po Number", "Delivery City", "DOMS Status", "Dp ID", "Fulfillment Status",
+                                    "Merge Type", "InstallInstruction2", "PP Date", "IP Date", "MN Date", "SC Date", "Location Number", "OFS Status Code",
+                                    "OFS Status", "ShippingCityCode", "ShippingContactName", "ShippingCustName", "ShippingStateCode", "ShipToAddress1",
+                                    "ShipToAddress2", "ShipToCompany", "ShipToPhone", "ShipToPostal", "Order Age", "Order Amount usd", "Rate Usd Transactional",
+                                    "Sales Rep Name", "Shipping Country", "Source System Status", "Tie Number", "Si Number", "Req Ship Code", "Reassigned IP Date",
+                                    "Payment Term Code", "Region Code", "FO ID", "System Qty", "Ship By Date", "Facility", "Tax Regstrn Num",
+                                    "State Code", "Customer Num", "Country", "Ship Code", "Must Arrive By Date", "Manifest Date", "Revised Delivery Date",
+                                    "Source System ID", "OIC ID", "Order Date", "Order Type", "Work Order ID", "Dell Blanket PO Num", "Ship To Facility",
+                                    "Is Last Leg", "Ship From MCID", "Ship To MCID", "WO OTM Enabled", "WO Ship Mode", "Is Multipack", "Has Software",
+                                    "Make WO Ack Date", "MCID Value", "Merge Facility", "ASN", "Destination", "Manifest ID", "Origin",
+                                    "Way Bill Number", "Actual Ship Mode", "Actual Ship Code", "Order Vol Wt", "PP ID", "SVC Tag", "Target Delivery Date",
+                                    "Total Box Count", "Total Gross Weight", "Total Volumetric Weight"
+                                ]
 
-                matching_asn_details = [
-                                        asn for asn in ASNDetailsData
-                                        if (str(asn.get('WorkOrderID', '')).strip() != "" and str(asn.get('WorkOrderID', '')).strip() == str(WorkOrderIDD).strip())
-                                        or (str(asn.get('WorkOrderID', '')).strip() == "" and str(asn.get('FullfillmentID', '')).strip() == str(fulfillment_id).strip())
-                                    ]
-
-                
-                shipping_addr = pick_address_by_type(so, "SHIPPING")
-                billing_addr = pick_address_by_type(so, "BILLING")
-                shipping_phone = pick_address_by_type(fulfillments[0], "SHIPPING") if fulfillments else None
-                shipping_contact_name = shipping_addr.get("fullName", "") if shipping_addr else ""
-
-                lob_list = list(filter(
-                    lambda lob: lob and lob.strip() != "",
-                    map(lambda line: safe_get(line, ['lob']), safe_get(fulfillments, [0,'salesOrderLines']) or [])
-                ))
-                lob = ", ".join(lob_list)
-                facility_list = list(filter(
-                    lambda f: f and f.strip() != "",
-                    map(lambda line: safe_get(line, ['facility']), safe_get(fulfillments, [0,'salesOrderLines']) or [])
-                ))
-                facility = ", ".join(dict.fromkeys(f.strip() for f in facility_list if f))
-
-                def get_status_date(code):
-                    status_code = safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode'])
-                    if status_code == code:
-                        return dateFormation(safe_get(fulfillments, [0, 'soStatus', 0, 'statusDate']))
-                    return ""
-                ActualShipCode,OrderVolWt,PPID,SvcTag,TargetDeliveryDate,TotalBoxCount,TotalGrossWeight,TotalVolumetricWeight = "","","","","","","",""
-                ASN,Destination,Origin,Way_Bill_Number,ship_mode = "","","","",""
-                if len(matching_asnheader_records) > 0:
-                    for idex, matching_asn_header in enumerate(matching_asnheader_records):
-                        if matching_asn_header is not None :
-                            
-                            ASN             = safe_get(matching_asn_header, ['sourceManifestId'])
-                            Destination     = safe_get(matching_asn_header, ['shipToVendorSiteId'])
-                            Origin          = safe_get(matching_asn_header, ['shipFromVendorSiteId'])
-                            Way_Bill_Number = safe_get(matching_asn_header, ['airwayBillNum'])
-                            ship_mode       = safe_get(matching_asn_header, ['shipMode'])
-                            
-                              
-                        if matching_asn_details[idex] is not None :
-                            ActualShipCode = safe_get(matching_asn_details[idex], ['manifestPallet', 0, 'woShipment', 0, 'woShipmentBox', 0, 'shipviaCode'])
-                            OrderVolWt     = safe_get(matching_asn_details[idex], ['manifestPallet', 0, 'woShipment', 0, 'woShipmentBox', 0, 'boxVolWt'])
-                            box_details    = safe_get(matching_asn_details[idex], ['manifestPallet', 0, 'woShipment', 0, 'woShipmentBox', 0, 'woShipmentBoxDetails'])
-                            base_ppid = safe_get(box_details[0], ['basePpid'])
-                            as_shipped_ppid_box = safe_get(box_details[0], ['asShippedPpid'])
-
-                            wo_make_man_dtl = safe_get(box_details[0], ['woMakeManDtl'])
-                            as_shipped_ppid_make = None
-                            if isinstance(wo_make_man_dtl, list):
-                                for item in wo_make_man_dtl:
-                                    as_shipped_ppid_make = safe_get(item, ['asShippedPpid'])
-                                    if as_shipped_ppid_make:
-                                        break
-
-                            PPID = base_ppid or as_shipped_ppid_box or as_shipped_ppid_make or ""
-
-                            SvcTag                = list(filter(
-                                                            lambda tag: tag is not None,
-                                                            map(
-                                                                lambda detail: safe_get(detail, ['serviceTag']),
-                                                                sum([
-                                                                    safe_get(box, ['woShipmentBoxDetails']) or []
-                                                                    for pallet in safe_get(matching_asn_details[idex], ['manifestPallet']) or []
-                                                                    for shipment in safe_get(pallet, ['woShipment']) or []
-                                                                    for box in safe_get(shipment, ['woShipmentBox']) or []
-                                                                ], [])
-                                                            )
-                                                        ))
-
-                            TargetDeliveryDate    = safe_get(matching_asn_details[idex],['manifestPallet', 0, 'woShipment', 0, 'estDeliveryDate'])
-                            
-                            shipment_boxes        = sum([safe_get(shipment, ['woShipmentBox']) or []
-                                                        for pallet in safe_get(matching_asn_details[idex], ['manifestPallet']) or []
-                                                        for shipment in safe_get(pallet, ['woShipment']) or []
-                                                    ], [])
-
-                            TotalBoxCount         = len(list(filter(lambda box: safe_get(box, ['boxRef']) is not None, shipment_boxes)))
-                            TotalGrossWeight      = sum(filter(lambda wt: wt is not None, map(lambda box: safe_get(box, ['boxGrossWt'], default=0), shipment_boxes)))
-                            TotalVolumetricWeight = sum(filter(lambda wt: wt is not None, map(lambda box: safe_get(box, ['boxVolWt'], default=0), shipment_boxes)))
-                            as_shipped_ppid       = safe_get(box_details[0], ['asShippedPpid'])
-                            make_man_dtls         = safe_get(box_details[0], ['woMakeManDtl'])
-                            make_man_ppids        = list(filter(lambda ppid: ppid is not None,map(lambda detail: safe_get(detail, ['asShippedPpid']), make_man_dtls)))
-                            SvcTag = ", ".join(s.strip() for s in SvcTag if s.strip()) if isinstance(SvcTag, list) else str(SvcTag).strip()
-                        
-                        row = {
-                            "Fulfillment ID": fulfillment_id,
-                            "BUID": safe_get(so, ['buid']),
-                            "BillingCustomerName": billing_addr.get("companyName", "") if billing_addr else "",
-                            "CustomerName": shipping_addr.get("companyName", "") if shipping_addr else "",
-                            "LOB": lob,
-                            "Sales Order ID": safe_get(so, ['salesOrderId']),
-                            "Agreement ID": safe_get(so, ['agreementId']),
-                            "Amount": safe_get(so, ['totalPrice']),
-                            "Currency Code": safe_get(so, ['currency']),
-                            "Customer Po Number": safe_get(so, ['poNumber']),
-                            "Delivery City": safe_get(fulfillments, [0, 'deliveryCity']),
-                            "DOMS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
-                            "Dp ID": safe_get(so, ['dpid']),
-                            "Fulfillment Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
-                            "Merge Type": safe_get(fulfillments, [0, 'mergeType']),
-                            "InstallInstruction2": get_install_instruction2_id(so),
-                            "PP Date": get_status_date("PP"),
-                            "IP Date": get_status_date("IP"),
-                            "MN Date": get_status_date("MN"),
-                            "SC Date": get_status_date("SC"),
-                            "Location Number": safe_get(so, ['locationNum']),
-                            "OFS Status Code": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
-                            "OFS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
-                            "ShippingCityCode": shipping_addr.get("cityCode", "") if shipping_addr else "",
-                            "ShippingContactName": shipping_contact_name,
-                            "ShippingCustName": shipping_addr.get("companyName", "") if shipping_addr else "",
-                            "ShippingStateCode": shipping_addr.get("stateCode", "") if shipping_addr else "",
-                            "ShipToAddress1": shipping_addr.get("addressLine1", "") if shipping_addr else "",
-                            "ShipToAddress2": shipping_addr.get("addressLine2", "") if shipping_addr else "",
-                            "ShipToCompany": shipping_addr.get("companyName", "") if shipping_addr else "",
-                            "ShipToPhone": (listify(shipping_phone.get("phone", []))[0].get("phoneNumber", "")
-                                            if shipping_phone and listify(shipping_phone.get("phone", [])) else ""),
-                            "ShipToPostal": shipping_addr.get("postalCode", "") if shipping_addr else "",
-                            "Order Age": safe_get(so, ['orderDate']),
-                            "Order Amount usd": safe_get(so, ['rateUsdTransactional']),
-                            "Rate Usd Transactional": safe_get(so, ['rateUsdTransactional']),
-                            "Sales Rep Name": safe_get(so, ['salesrep', 0, 'salesRepName']),
-                            "Shipping Country": shipping_addr.get("country", "") if shipping_addr else "",
-                            "Source System Status": safe_get(fulfillments, [0, 'soStatus', 0,'sourceSystemStsCode']),
-                            "Tie Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'soLineNum']),
-                            "Si Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'siNumber']),
-                            "Req Ship Code": safe_get(fulfillments, [0, 'shipCode']),
-                            "Reassigned IP Date": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
-                            "Payment Term Code": safe_get(fulfillments, [0, 'paymentTerm']),
-                            "Region Code": safe_get(so, ['region']),
-                            "FO ID": safe_get(fulfillments, [0, 'fulfillmentOrder', 0, 'foId']),
-                            "System Qty": safe_get(fulfillments, [0, 'systemQty']),
-                            "Ship By Date": safe_get(fulfillments, [0, 'shipByDate']),
-                            "Facility": facility,
-                            "Tax Regstrn Num": safe_get(fulfillments, [0, 'address', 0, 'taxRegstrnNum']),
-                            "State Code": shipping_addr.get("stateCode", "") if shipping_addr else "",
-                            # "City Code": shipping_addr.get("cityCode", "") if shipping_addr else "",
-                            "Customer Num": shipping_addr.get("customerNum", "") if shipping_addr else "",
-                            # "Customer Name Ext": shipping_addr.get("customerNameExt", "") if shipping_addr else "",
-                            "Country": shipping_addr.get("country", "") if shipping_addr else "",
-                            "Ship Code": safe_get(fulfillments, [0, 'shipCode']),
-                            "Must Arrive By Date": dateFormation(safe_get(fulfillments, [0, 'mustArriveByDate'])),
-                            "Manifest Date": dateFormation(safe_get(fulfillments, [0, 'manifestDate'])),
-                            "Revised Delivery Date": dateFormation(safe_get(fulfillments, [0, 'revisedDeliveryDate'])),
-                            "Source System ID": safe_get(so, ['sourceSystemId']),
-                            "OIC ID": safe_get(fulfillments, [0, 'oicId']),
-                            "Order Date": dateFormation(safe_get(so, ['orderDate'])),
-                            "Order Type": dateFormation(safe_get(so, ['orderType'])),
-                            "Work Order ID": safe_get(workorders_Data, ['WO_ID']),
-                            "Dell Blanket PO Num": safe_get(workorders_Data, ['Dell Blanket PO Num']),
-                            "Ship To Facility": safe_get(workorders_Data, ['Ship To Facility']),
-                            "Is Last Leg": 'Y' if safe_get(workorders_Data, ['Is Last Leg']) else 'N',
-                            "Ship From MCID": safe_get(workorders_Data, ['Ship From MCID']),
-                            "Ship To MCID": 'Y' if safe_get(workorders_Data, ['Is Last Leg']) else 'N',
-                            "WO OTM Enabled": safe_get(workorders_Data, ['WO OTM Enabled']),
-                            "WO Ship Mode": safe_get(workorders_Data, ['WO Ship Mode']),
-                            "Is Multipack": safe_get(workorders_Data, ['Is Multipack']),
-                            "Has Software": safe_get(workorders_Data, ['Has Software']),
-                            "Make WO Ack Date": safe_get(workorders_Data, ['Make WO Ack Date']),
-                            "MCID Value": safe_get(workorders_Data, ['MCID Value']),
-                            "Merge Facility": safe_get(workorders_Data, ['Merge Facility']),
-                            "ASN":ASN,
-                            "Destination":Destination,
-                            "Manifest ID":ASN,
-                            "Origin":Origin,
-                            "Way Bill Number":Way_Bill_Number, 
-                            "Actual Ship Mode":ship_mode,
-                            "Actual Ship Code": ActualShipCode,
-                            "Order Vol Wt": OrderVolWt,
-                            "PP ID": PPID,
-                            "SVC Tag": SvcTag,
-                            "Target Delivery Date": TargetDeliveryDate,
-                            "Total Box Count": TotalBoxCount,
-                            "Total Gross Weight": TotalGrossWeight,
-                            "Total Volumetric Weight": TotalVolumetricWeight
-                        }
-
-                        flat_list.append(row)
-                    
-                        wo_data_list.clear()
-                else:                    
-                    row = {
-                        "Fulfillment ID": fulfillment_id,
-                        "BUID": safe_get(so, ['buid']),
-                        "BillingCustomerName": billing_addr.get("companyName", "") if billing_addr else "",
-                        "CustomerName": shipping_addr.get("companyName", "") if shipping_addr else "",
-                        "LOB": lob,
-                        "Sales Order ID": safe_get(so, ['salesOrderId']),
-                        "Agreement ID": safe_get(so, ['agreementId']),
-                        "Amount": safe_get(so, ['totalPrice']),
-                        "Currency Code": safe_get(so, ['currency']),
-                        "Customer Po Number": safe_get(so, ['poNumber']),
-                        "Delivery City": safe_get(fulfillments, [0, 'deliveryCity']),
-                        "DOMS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
-                        "Dp ID": safe_get(so, ['dpid']),
-                        "Fulfillment Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
-                        "Merge Type": safe_get(fulfillments, [0, 'mergeType']),
-                        "InstallInstruction2": get_install_instruction2_id(so),
-                        "PP Date": get_status_date("PP"),
-                        "IP Date": get_status_date("IP"),
-                        "MN Date": get_status_date("MN"),
-                        "SC Date": get_status_date("SC"),
-                        "Location Number": safe_get(so, ['locationNum']),
-                        "OFS Status Code": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
-                        "OFS Status": safe_get(fulfillments, [0, 'soStatus', 0, 'fulfillmentStsCode']),
-                        "ShippingCityCode": shipping_addr.get("cityCode", "") if shipping_addr else "",
-                        "ShippingContactName": shipping_contact_name,
-                        "ShippingCustName": shipping_addr.get("companyName", "") if shipping_addr else "",
-                        "ShippingStateCode": shipping_addr.get("stateCode", "") if shipping_addr else "",
-                        "ShipToAddress1": shipping_addr.get("addressLine1", "") if shipping_addr else "",
-                        "ShipToAddress2": shipping_addr.get("addressLine2", "") if shipping_addr else "",
-                        "ShipToCompany": shipping_addr.get("companyName", "") if shipping_addr else "",
-                        "ShipToPhone": (listify(shipping_phone.get("phone", []))[0].get("phoneNumber", "")
-                                        if shipping_phone and listify(shipping_phone.get("phone", [])) else ""),
-                        "ShipToPostal": shipping_addr.get("postalCode", "") if shipping_addr else "",
-                        "Order Age": safe_get(so, ['orderDate']),
-                        "Order Amount usd": safe_get(so, ['rateUsdTransactional']),
-                        "Rate Usd Transactional": safe_get(so, ['rateUsdTransactional']),
-                        "Sales Rep Name": safe_get(so, ['salesrep', 0, 'salesRepName']),
-                        "Shipping Country": shipping_addr.get("country", "") if shipping_addr else "",
-                        "Source System Status": safe_get(fulfillments, [0, 'soStatus', 0,'sourceSystemStsCode']),
-                        "Tie Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'soLineNum']),
-                        "Si Number": safe_get(fulfillments, [0, 'salesOrderLines', 0, 'siNumber']),
-                        "Req Ship Code": safe_get(fulfillments, [0, 'shipCode']),
-                        "Reassigned IP Date": safe_get(fulfillments, [0, 'soStatus', 0, 'sourceSystemStsCode']),
-                        "Payment Term Code": safe_get(fulfillments, [0, 'paymentTerm']),
-                        "Region Code": safe_get(so, ['region']),
-                        "FO ID": safe_get(fulfillments, [0, 'fulfillmentOrder', 0, 'foId']),
-                        "System Qty": safe_get(fulfillments, [0, 'systemQty']),
-                        "Ship By Date": safe_get(fulfillments, [0, 'shipByDate']),
-                        "Facility": facility,
-                        "Tax Regstrn Num": safe_get(fulfillments, [0, 'address', 0, 'taxRegstrnNum']),
-                        "State Code": shipping_addr.get("stateCode", "") if shipping_addr else "",
-                        # "City Code": shipping_addr.get("cityCode", "") if shipping_addr else "",
-                        "Customer Num": shipping_addr.get("customerNum", "") if shipping_addr else "",
-                        # "Customer Name Ext": shipping_addr.get("customerNameExt", "") if shipping_addr else "",
-                        "Country": shipping_addr.get("country", "") if shipping_addr else "",
-                        "Ship Code": safe_get(fulfillments, [0, 'shipCode']),
-                        "Must Arrive By Date": dateFormation(safe_get(fulfillments, [0, 'mustArriveByDate'])),
-                        "Manifest Date": dateFormation(safe_get(fulfillments, [0, 'manifestDate'])),
-                        "Revised Delivery Date": dateFormation(safe_get(fulfillments, [0, 'revisedDeliveryDate'])),
-                        "Source System ID": safe_get(so, ['sourceSystemId']),
-                        "OIC ID": safe_get(fulfillments, [0, 'oicId']),
-                        "Order Date": dateFormation(safe_get(so, ['orderDate'])),
-                        "Order Type": dateFormation(safe_get(so, ['orderType'])),
-                        "Work Order ID": safe_get(workorders_Data, ['WO_ID']),
-                        "Dell Blanket PO Num": safe_get(workorders_Data, ['Dell Blanket PO Num']),
-                        "Ship To Facility": safe_get(workorders_Data, ['Ship To Facility']),
-                        "Is Last Leg": 'Y' if safe_get(workorders_Data, ['Is Last Leg']) else 'N',
-                        "Ship From MCID": safe_get(workorders_Data, ['Ship From MCID']),
-                        "Ship To MCID": 'Y' if safe_get(workorders_Data, ['Is Last Leg']) else 'N',
-                        "WO OTM Enabled": safe_get(workorders_Data, ['WO OTM Enabled']),
-                        "WO Ship Mode": safe_get(workorders_Data, ['WO Ship Mode']),
-                        "Is Multipack": safe_get(workorders_Data, ['Is Multipack']),
-                        "Has Software": safe_get(workorders_Data, ['Has Software']),
-                        "Make WO Ack Date": safe_get(workorders_Data, ['Make WO Ack Date']),
-                        "MCID Value": safe_get(workorders_Data, ['MCID Value']),
-                        "Merge Facility": safe_get(workorders_Data, ['Merge Facility']),
-                        "ASN":ASN,
-                        "Destination":Destination,
-                        "Manifest ID":ASN,
-                        "Origin":Origin,
-                        "Way Bill Number":Way_Bill_Number, 
-                        "Actual Ship Mode":ship_mode,
-                        "Actual Ship Code": ActualShipCode,
-                        "Order Vol Wt": OrderVolWt,
-                        "PP ID": PPID,
-                        "SVC Tag": SvcTag,
-                        "Target Delivery Date": TargetDeliveryDate,
-                        "Total Box Count": TotalBoxCount,
-                        "Total Gross Weight": TotalGrossWeight,
-                        "Total Volumetric Weight": TotalVolumetricWeight
-                    }
-
-                    flat_list.append(row)
-                
-                    wo_data_list.clear()
-                continue
-        if not flat_list:
-            return {"error": "No Data Found"}
-
-        if len(flat_list) > 0:
-            if format_type == "export":
-                if filtersValue:
-                    data = []
-                    count =  {"Count ": len(ValidCount)}
-                    data.append(count)
-                    data.append(flat_list)
-                    ValidCount.clear()
-                    return data
-
-            elif format_type == "grid":
-                desired_order = list(flat_list[0].keys())
                 rows = []
                 count =  len(ValidCount)
                 for item in flat_list:
                     row = {"columns": [{"value": item.get(k, "")} for k in desired_order]}
                     rows.append(row)
                 table_grid_output = tablestructural(rows, region) if rows else []
-                if filtersValue:
-                    table_grid_output["Count"] = count
-                ValidCount.clear()
-                return table_grid_output
-
-        return flat_list
-        
-    except Exception as e:
-        return {"error": str(e)}
 
 
-def safe_get(data, keys, default=""):
-    if data is None:
-        return default
+def tablestructural(data,IsPrimary):
+    table_structure = {
+        "columns": [
+                    {"value": "Fulfillment ID", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "ID", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+                    {"value": "BUID", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "ID", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+                    {"value": "Billing Customer Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+                    {"value": "Customer Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+                    {"value": "LOB", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA"], "group": "Other", "checked": IsPrimary in ["APJ","EMEA"]},
+                    {"value": "Sales Order ID", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "ID", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+                    {"value": "Agreement ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Amount", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Currency Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Customer Po Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Delivery City", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+                    {"value": "DOMS Status", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "DP ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Fulfillment Status", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Merge Type", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Type", "checked": IsPrimary in []},
+                    {"value": "Install Instruction 2", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+                    {"value": "PP Date", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","AMER"], "group": "Date", "checked": IsPrimary in ["APJ","EMEA"]},
+                    {"value": "IP Date", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","AMER"], "group": "Date", "checked": IsPrimary in ["APJ","EMEA"]},
+                    {"value": "MN Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "SC Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Location Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "OFS Status Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "OFS Status", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Shipping City Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+                    {"value": "Shipping Contact Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+                    {"value": "Shipping Cust Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+                    {"value": "Shipping State Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+                    {"value": "Ship To Address1", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+                    {"value": "Ship To Address2", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+                    {"value": "Ship To Company", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+                    {"value": "Ship To Phone", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Contact", "checked": IsPrimary in []},
+                    {"value": "Ship To Postal", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+                    {"value": "Order Age", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Order Amount USD", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Rate USD Transactional", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Sales Rep Name", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Shipping Country", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Source System Status", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Tie Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Si Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Req Ship Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Reassigned IP Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Payment Term Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Region Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+                    {"value": "FO ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "System Qty", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA"], "group": "Other", "checked": IsPrimary in ["APJ","EMEA"]},
+                    {"value": "Ship By Date", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "Date", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+                    {"value": "Facility", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"], "group": "Facility", "checked": IsPrimary in ["APJ","EMEA","DAO","AMER","LA"]},
+                    {"value": "Tax Regstrn Num", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+                    {"value": "State Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+                    # {"value": "City Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Address", "checked": IsPrimary in []},
+                    {"value": "Customer Num", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+                    # {"value": "Customer Name Ext", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Other", "checked": IsPrimary in []},
+                    {"value": "Country", "sortBy": "ascending", "isPrimary": IsPrimary in ['APJ'], "group": "Address", "checked": IsPrimary in ['APJ']},
+                    {"value": "Ship Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Code", "checked": IsPrimary in []},
+                    {"value": "Must Arrive By Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Manifest Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Revised Delivery Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Date", "checked": IsPrimary in []},
+                    {"value": "Source System ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "OIC ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Order Date", "sortBy": "ascending", "isPrimary": IsPrimary in ["APJ","DAO","AMER","LA"], "group": "Date", "checked": IsPrimary in ["APJ","DAO","AMER","LA"]},
+                    {"value": "Order Type", "sortBy": "ascending", "isPrimary": IsPrimary in ["DAO","AMER"], "group": "Type", "checked": IsPrimary in ["DAO","AMER"]},
+                    {"value": "Work Order ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Dell Blanket Po Num", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Ship To Facility", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Facility", "checked": IsPrimary in []},
+                    {"value": "Is Last Leg", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},                    
+                    {"value": "Ship From MCID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Ship To Mcid", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "WO OTM Enable", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Wo Ship Mode", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Is Multi Pack", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "Type", "checked": IsPrimary in []},
+                    {"value": "Has Software", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Make WO Ack Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "MCID Value", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Merge Facility", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "ASN", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Destination", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Manifest ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Origin", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Way Bill Number", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Actual Ship Mode", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Actual Ship Code", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Order Vol Wt", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "PP ID", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "SVC Tag", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Target Delivery Date", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Total Box Count", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Total Gross Weight", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []},
+                    {"value": "Total Volumetric Weight", "sortBy": "ascending", "isPrimary": IsPrimary in [], "group": "ID", "checked": IsPrimary in []}
+                ],
+        "data": []
+    }
+    table_structure["data"].extend(data)
+    return table_structure
 
-    for key in keys:
-        if isinstance(data, dict):
-            data = data.get(key, default)
-        elif isinstance(data, list):
-            try:
-                index = int(key)
-                if 0 <= index < len(data):
-                    data = data[index]
-                else:
-                    return default
-            except (ValueError, TypeError):
-                return default
-        else:
-            return default
 
-        if data is None:
-            return default
-    return data
+response  
 
-def dateFormation(unformatedDate):
-    if unformatedDate not in [None, "", "null"]:
-        return unformatedDate.split('.')[0]
-    else:
-        return ""
-
-def chunk_list(data_list, chunk_size):
-    for i in range(0, len(data_list), chunk_size):
-        yield data_list[i:i + chunk_size]
-
-def listify(x):
-    if x is None:
-        return []
-    if isinstance(x, list):
-        return x
-    return [x]
-
-def pick_address_by_type(so, contact_type):
-    addresses = so.get("address", [])
-    addresses = listify(addresses)
-    for addr in addresses:
-        contacts = listify(addr.get("contact", []))
-        for c in contacts:
-            if isinstance(c, dict) and c.get("contactType") == contact_type:
-                return addr
-    return {}
-
-def get_install_instruction2_id(fulfillment_entry: Dict) -> str:
-    
-    fulfills = listify(fulfillment_entry.get("fulfillments", []))
-    if not fulfills:
-        return ""
-    lines = listify(fulfills[0].get("salesOrderLines", []))
-    for line in lines:
-        instrs = listify(line.get("specialinstructions", []))
-        for instr in instrs:
-            if instr.get("specialInstructionType") == "INSTALL_INSTR2":
-                return str(instr.get("specialInstructionId", ""))
-    return ""
-
-def getPath(region):
-    try:
-        if region == "EMEA":
-            return {
-                "FID": configPath['Linkage_EMEA'],
-                "SALESFULLFILLMENT": configPath['SALES_ORDER_EMEA'],
-                "WORKORDER": configPath['WORK_ORDER_EMEA'],
-                "ASNODM": configPath['ASNODM_EMEA'],
-                "SOPATH": configPath['SO_Header_EMEA'],
-            }
-        elif region == "APJ":
-            return {
-                "FID": configPath['Linkage_APJ'],
-                "SALESFULLFILLMENT": configPath['SALES_ORDER_APJ'],
-                "WORKORDER": configPath['WORK_ORDER_APJ'],
-                "ASNODM": configPath['ASNODM_APJ'],
-                "SOPATH": configPath['SO_Header_APJ'],
-            }
-        elif region in ["DAO", "AMER", "LA"]:
-            return {
-                "FID": configPath['Linkage_DAO'],
-                "SALESFULLFILLMENT": configPath['SALES_ORDER_DAO'],
-                "WORKORDER": configPath['WORK_ORDER_DAO'],
-                "ASNODM": configPath['ASNODM_DAO'],
-                "SOPATH": configPath['SO_Header_DAO'],
-            }
-    except Exception as e:
-        print(f"[ERROR] getPath failed: {e}")
-        traceback.print_exc()
-        return {}
+{
+    "Count": 1,
+    "columns": [
+        {
+            "checked": true,
+            "group": "ID",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Fulfillment ID"
+        },
+        {
+            "checked": true,
+            "group": "ID",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "BUID"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Billing Customer Name"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Customer Name"
+        },
+        {
+            "checked": true,
+            "group": "Other",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "LOB"
+        },
+        {
+            "checked": true,
+            "group": "ID",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Sales Order ID"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Agreement ID"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Amount"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Currency Code"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Customer Po Number"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Delivery City"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "DOMS Status"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "DP ID"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Fulfillment Status"
+        },
+        {
+            "checked": false,
+            "group": "Type",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Merge Type"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Install Instruction 2"
+        },
+        {
+            "checked": true,
+            "group": "Date",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "PP Date"
+        },
+        {
+            "checked": true,
+            "group": "Date",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "IP Date"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "MN Date"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "SC Date"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Location Number"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "OFS Status Code"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "OFS Status"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Shipping City Code"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Shipping Contact Name"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Shipping Cust Name"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Shipping State Code"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship To Address1"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship To Address2"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship To Company"
+        },
+        {
+            "checked": false,
+            "group": "Contact",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship To Phone"
+        },
+        {
+            "checked": false,
+            "group": "Address",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship To Postal"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Order Age"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Order Amount USD"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Rate USD Transactional"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Sales Rep Name"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Shipping Country"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Source System Status"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Tie Number"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Si Number"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Req Ship Code"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Reassigned IP Date"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Payment Term Code"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Region Code"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "FO ID"
+        },
+        {
+            "checked": true,
+            "group": "Other",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "System Qty"
+        },
+        {
+            "checked": true,
+            "group": "Date",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Ship By Date"
+        },
+        {
+            "checked": true,
+            "group": "Facility",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Facility"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Tax Regstrn Num"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "State Code"
+        },
+        {
+            "checked": false,
+            "group": "Other",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Customer Num"
+        },
+        {
+            "checked": true,
+            "group": "Address",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Country"
+        },
+        {
+            "checked": false,
+            "group": "Code",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship Code"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Must Arrive By Date"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Manifest Date"
+        },
+        {
+            "checked": false,
+            "group": "Date",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Revised Delivery Date"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Source System ID"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "OIC ID"
+        },
+        {
+            "checked": true,
+            "group": "Date",
+            "isPrimary": true,
+            "sortBy": "ascending",
+            "value": "Order Date"
+        },
+        {
+            "checked": false,
+            "group": "Type",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Order Type"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Work Order ID"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Dell Blanket Po Num"
+        },
+        {
+            "checked": false,
+            "group": "Facility",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship To Facility"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Is Last Leg"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship From MCID"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Ship To Mcid"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "WO OTM Enable"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Wo Ship Mode"
+        },
+        {
+            "checked": false,
+            "group": "Type",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Is Multi Pack"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Has Software"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Make WO Ack Date"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "MCID Value"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Merge Facility"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "ASN"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Destination"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Manifest ID"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Origin"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Way Bill Number"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Actual Ship Mode"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Actual Ship Code"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Order Vol Wt"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "PP ID"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "SVC Tag"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Target Delivery Date"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Total Box Count"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Total Gross Weight"
+        },
+        {
+            "checked": false,
+            "group": "ID",
+            "isPrimary": false,
+            "sortBy": "ascending",
+            "value": "Total Volumetric Weight"
+        }
+    ],
+    "data": [
+        {
+            "columns": [
+                {
+                    "value": "3000070327"
+                },
+                {
+                    "value": "10036"
+                },
+                {
+                    "value": "Qantas Airways Limited"
+                },
+                {
+                    "value": "Qantas Airways Limited"
+                },
+                {
+                    "value": "Dell UltraSharp Monitors"
+                },
+                {
+                    "value": "8040070632"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "11353.88"
+                },
+                {
+                    "value": "AUD"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "SC"
+                },
+                {
+                    "value": "8040070632"
+                },
+                {
+                    "value": "Ship Confirm"
+                },
+                {
+                    "value": "PTO-DIRECT"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "2025-07-29 07:35:16"
+                },
+                {
+                    "value": "01"
+                },
+                {
+                    "value": "SC"
+                },
+                {
+                    "value": "Ship Confirm"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "Vinay Kumar"
+                },
+                {
+                    "value": "Qantas Airways Limited"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "10 Bourke Road"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "Qantas Airways Limited"
+                },
+                {
+                    "value": "61-02261111818"
+                },
+                {
+                    "value": "2020"
+                },
+                {
+                    "value": "2025-07-29 06:59:04"
+                },
+                {
+                    "value": "0"
+                },
+                {
+                    "value": "0"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "AU"
+                },
+                {
+                    "value": "SC"
+                },
+                {
+                    "value": "1"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "IY"
+                },
+                {
+                    "value": "SC"
+                },
+                {
+                    "value": "IMMEDIATE"
+                },
+                {
+                    "value": "APJ"
+                },
+                {
+                    "value": "7355860096558333953"
+                },
+                {
+                    "value": "1"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "BX2"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "D11200523232"
+                },
+                {
+                    "value": "AU"
+                },
+                {
+                    "value": "IY"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "DSP"
+                },
+                {
+                    "value": "ZTmNBGxMEfCHJe_Jjx4dAA"
+                },
+                {
+                    "value": "2025-07-29 06:59:04"
+                },
+                {
+                    "value": "Standard Order"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "3027522928"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "3027522928"
+                },
+                {
+                    "value": "BX2"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": 20.0
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "APJ1538"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": 3
+                },
+                {
+                    "value": 60.0
+                },
+                {
+                    "value": 60.0
+                }
+            ]
+        },
+        {
+            "columns": [
+                {
+                    "value": "3000070326"
+                },
+                {
+                    "value": "10036"
+                },
+                {
+                    "value": "Qantas Airways Limited"
+                },
+                {
+                    "value": "Qantas Airways Limited"
+                },
+                {
+                    "value": "Inspiron 14 5440"
+                },
+                {
+                    "value": "8040070632"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "11353.88"
+                },
+                {
+                    "value": "AUD"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "IP"
+                },
+                {
+                    "value": "8040070632"
+                },
+                {
+                    "value": "In Production"
+                },
+                {
+                    "value": "ATO-INDIRECT"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "2025-07-29 13:20:07"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "01"
+                },
+                {
+                    "value": "IP"
+                },
+                {
+                    "value": "In Production"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "Vinay Kumar"
+                },
+                {
+                    "value": "Qantas Airways Limited"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "10 Bourke Road"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "Qantas Airways Limited"
+                },
+                {
+                    "value": "61-02261111818"
+                },
+                {
+                    "value": "2020"
+                },
+                {
+                    "value": "2025-07-29 06:59:04"
+                },
+                {
+                    "value": "0"
+                },
+                {
+                    "value": "0"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "AU"
+                },
+                {
+                    "value": "IP"
+                },
+                {
+                    "value": "23"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "IY"
+                },
+                {
+                    "value": "IP"
+                },
+                {
+                    "value": "IMMEDIATE"
+                },
+                {
+                    "value": "APJ"
+                },
+                {
+                    "value": "7355928803984830465"
+                },
+                {
+                    "value": "5"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "WCD"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "D11200523232"
+                },
+                {
+                    "value": "AU"
+                },
+                {
+                    "value": "IY"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "DSP"
+                },
+                {
+                    "value": "_CiIpGxVEfCLGBGxs3YlMQ"
+                },
+                {
+                    "value": "2025-07-29 06:59:04"
+                },
+                {
+                    "value": "Standard Order"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": "TMAV9890018651"
+                },
+                {
+                    "value": "BX2"
+                },
+                {
+                    "value": "TMAV9890018651"
+                },
+                {
+                    "value": "WCD"
+                },
+                {
+                    "value": "NNN1OV"
+                },
+                {
+                    "value": "AR"
+                },
+                {
+                    "value": ""
+                },
+                {
+                    "value": 34.02
+                },
+                {
+                    "value": "CNJXWXCY172O5012V51N"
+                },
+                {
+                    "value": "8931240"
+                },
+                {
+                    "value": "2025-07-29T13:45:41"
+                },
+                {
+                    "value": 1
+                },
+                {
+                    "value": 34.02
+                },
+                {
+                    "value": 34.02
+                }
+            ]
+        }
+    ]
+}
