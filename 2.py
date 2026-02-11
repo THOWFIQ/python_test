@@ -1,104 +1,112 @@
-def DownloadOrderEnvelopeReport(filters, region, endPoint):
-    path = getPath(region)
-    url = path.get('OMTC') + endPoint
+fetchOrderProgressData
 
-    if not url:
-        return make_response(jsonify({"error": "Invalid region or URL not configured"}), 400)
-
-    if not isinstance(filters, dict):
-        return make_response(jsonify({"error": "Filters must be a dictionary"}), 400)
-
-    from_date = filters.get("FromDate")
-    to_date = filters.get("ToDate")
-
-    if not from_date or not to_date:
-        return make_response(jsonify({"error": "FromDate and ToDate are required in filters"}), 400)
-
-    payload = {
-        "FromDate": from_date,
-        "ToDate": to_date,
-        "Region": region
-    }
-
-    try:
-        response = requests.post(url, json=payload, verify=cert_path)
-        response.raise_for_status()
-        api_data = response.json()
-
-        results = api_data.get("Results", [])
-        count = len(results)
-
-        # ---------------------- COLLECT ALL UNIQUE KEYS ----------------------
-        all_keys = set()
-
-        for rec in results:
-            # top-level keys
-            for k in rec.keys():
-                if k not in ("Envelopes", "Fulfillments"):
-                    all_keys.add(k)
-
-            # envelope keys
-            for env in rec.get("Envelopes", []):
-                for k in env.keys():
-                    all_keys.add(f"Envelope_{k}")
-
-            # fulfillment keys
-            for fu in rec.get("Fulfillments", []):
-                for k in fu.keys():
-                    all_keys.add(f"Fulfillment_{k}")
-
-        all_keys = list(all_keys)
-
-        # ---------------------- BUILD COLUMN DEFINITIONS ----------------------
-        columns = []
-        for key in all_keys:
-            columns.append({
-                "checked": False,
-                "group": "Data",
-                "isPrimary": False,
-                "sortBy": "ascending",
-                "value": key
-            })
-
-        # ---------------------- BUILD DATA ROWS ----------------------
-        data_rows = []
-
-        for rec in results:
-            row_values = {}
-
-            # top-level fields
-            for k in rec.keys():
-                if k not in ("Envelopes", "Fulfillments"):
-                    row_values[k] = rec.get(k, "")
-
-            # envelope fields (flattened)
-            for env in rec.get("Envelopes", []):
-                for k, v in env.items():
-                    row_values[f"Envelope_{k}"] = v
-
-            # fulfillment fields (flattened)
-            for fu in rec.get("Fulfillments", []):
-                for k, v in fu.items():
-                    row_values[f"Fulfillment_{k}"] = v
-
-            # build final "columns" array
-            row = {
-                "columns": [{"value": row_values.get(col, "")} for col in all_keys]
+[
+    {
+        "ASNCount": 1,
+        "FFIDCount": 1,
+        "SNCount": 1,
+        "WOCount": 1,
+        "children": [
+            {
+                "ASNCount": 1,
+                "SNCount": 1,
+                "WOCount": 1,
+                "children": [
+                    {
+                        "ASNCount": 1,
+                        "SNCount": 1,
+                        "children": [
+                            {
+                                "SNCount": 1,
+                                "children": [
+                                    {
+                                        "expanded": true,
+                                        "id": "CHVSN60159443416309056",
+                                        "label": "SN Number",
+                                        "status": "In Progress"
+                                    }
+                                ],
+                                "expanded": true,
+                                "id": "TMAV5112908146",
+                                "label": "ASN Number",
+                                "status": "In Progress"
+                            }
+                        ],
+                        "expanded": true,
+                        "id": "30000151655",
+                        "label": "Work Order ID",
+                        "status": "Completed"
+                    }
+                ],
+                "expanded": true,
+                "id": "3400310179",
+                "label": "Fullfillment ID",
+                "status": "In Progress"
             }
+        ],
+        "expanded": true,
+        "id": "8400248146",
+        "label": "Sales Order ID",
+        "status": "In Progress"
+    }
+]
 
-            data_rows.append(row)
+orderprogress/status
 
-        # ---------------------- FINAL OUTPUT ----------------------
-        final_output = {
-            "Count": count,
-            "columns": columns,
-            "data": data_rows
+{
+    "data": {
+        "getSalesOrderHierarchy": {
+            "salesOrders": [
+                {
+                    "OICIDs": [
+                        {
+                            "OICID": "9uCLw-vJEfCHM3OM8zllYw",
+                            "fulfillmentIds": [
+                                {
+                                    "FulfillmentId": "3400310179",
+                                    "fulfillmentOrders": [
+                                        {
+                                            "FOID": "42767201774563328",
+                                            "status": "COMPLETED",
+                                            "workOrders": [
+                                                {
+                                                    "ASNs": [
+                                                        {
+                                                            "ASNNumber": "TMAV5112908146",
+                                                            "SNs": [
+                                                                {
+                                                                    "SNNumber": "CHVSN60159443416309056",
+                                                                    "status": "COMPLETED"
+                                                                }
+                                                            ],
+                                                            "status": "COMPLETED"
+                                                        }
+                                                    ],
+                                                    "status": "COMPLETED",
+                                                    "workOrderId": "30000151655"
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "status": "COMPLETED"
+                                }
+                            ],
+                            "status": "NO_STATUS"
+                        }
+                    ],
+                    "SONumber": "8400248146",
+                    "status": "COMPLETED"
+                }
+            ]
         }
+    },
+    "logs": {
+        "urls": [
+            "https://keysphereservice-amer.uslge4b-r4-np.kob.dell.com/findby"
+        ],
+        "time": [
+            "1.24s"
+        ]
+    }
+}
 
-        return make_response(json.dumps(final_output, indent=4, ensure_ascii=False),
-                             200,
-                             {"Content-Type": "application/json; charset=utf-8"}
-                             )
-
-    except requests.exceptions.RequestException as e:
-        return make_response(jsonify({"error": str(e)}), 500)
